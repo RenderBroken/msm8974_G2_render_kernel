@@ -147,13 +147,8 @@ AES_Te:
 @ void AES_encrypt(const unsigned char *in, unsigned char *out,
 @ 		 const AES_KEY *key) {
 .align	5
-<<<<<<< HEAD
-AES_encrypt:
-	sub	r3,pc,#8		@ AES_encrypt
-=======
 ENTRY(AES_encrypt)
 	adr	r3,AES_encrypt
->>>>>>> d439d37... ARM: 7837/3: fix Thumb-2 bug in AES assembler code
 	stmdb   sp!,{r1,r4-r12,lr}
 	mov	r12,r0		@ inp
 	mov	r11,r2
@@ -847,13 +842,8 @@ AES_Td:
 @ void AES_decrypt(const unsigned char *in, unsigned char *out,
 @ 		 const AES_KEY *key) {
 .align	5
-<<<<<<< HEAD
-AES_decrypt:
-	sub	r3,pc,#8		@ AES_decrypt
-=======
 ENTRY(AES_decrypt)
 	adr	r3,AES_decrypt
->>>>>>> d439d37... ARM: 7837/3: fix Thumb-2 bug in AES assembler code
 	stmdb   sp!,{r1,r4-r12,lr}
 	mov	r12,r0		@ inp
 	mov	r11,r2
