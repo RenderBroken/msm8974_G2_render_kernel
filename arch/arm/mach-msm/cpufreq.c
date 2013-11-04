@@ -407,8 +407,57 @@ static int __cpuinit msm_cpufreq_init(struct cpufreq_policy *policy)
 	return 0;
 }
 
+#ifdef CONFIG_CPU_FREQ_GOV_INTELLIDEMAND
+extern bool lmf_screen_state;
+#endif
+
+static void msm_cpu_early_suspend(struct early_suspend *h)
+{
+#ifdef CONFIG_CPU_FREQ_GOV_INTELLIDEMAND
+	int cpu = 0;
+
+	for_each_possible_cpu(cpu) {
+
+		mutex_lock(&per_cpu(cpufreq_suspend, cpu).suspend_mutex);
+		lmf_screen_state = false;
+		// put rest of the cores to sleep!
+		switch (num_online_cpus()) {
+		case 4:
+			cpu_down(3);
+		case 3:
+			cpu_down(2);
+		case 2:
+			cpu_down(1);
+		}
+		mutex_unlock(&per_cpu(cpufreq_suspend, cpu).suspend_mutex);
+	}
+#endif
+}
+
+static void msm_cpu_late_resume(struct early_suspend *h)
+{
+
+#ifdef CONFIG_CPU_FREQ_GOV_INTELLIDEMAND
+	int cpu = 0;
+
+	for_each_possible_cpu(cpu) {
+
+		mutex_lock(&per_cpu(cpufreq_suspend, cpu).suspend_mutex);
+		lmf_screen_state = true;
+		mutex_unlock(&per_cpu(cpufreq_suspend, cpu).suspend_mutex);
+	}
+#endif
+}
+
+static struct early_suspend msm_cpu_early_suspend_handler = {
+	.level = EARLY_SUSPEND_LEVEL_BLANK_SCREEN,
+	.suspend = msm_cpu_early_suspend,
+	.resume = msm_cpu_late_resume,
+};
+
 static int __cpuinit msm_cpufreq_cpu_callback(struct notifier_block *nfb,
 		unsigned long action, void *hcpu)
+
 {
 	unsigned int cpu = (unsigned long)hcpu;
 	int rc;
