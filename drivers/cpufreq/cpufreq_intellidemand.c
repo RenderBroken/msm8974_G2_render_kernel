@@ -29,7 +29,7 @@
 #include <linux/workqueue.h>
 #include <linux/slab.h>
 
-#if 0
+#ifdef CONFIG_POWERSUSPEND
 #include <linux/powersuspend.h>
 #endif
 
@@ -77,7 +77,7 @@
 #define SUP_HIGH_SLOW_UP_DUR (5)
 #define SUP_FREQ_LEVEL (14)
 
-#if 0
+#ifdef CONFIG_POWERSUSPEND
 static unsigned long stored_sampling_rate;
 #endif
 
@@ -89,7 +89,7 @@ typedef struct{
         unsigned int freq_idx;
         unsigned int freq_value;
 } freq_table_idx;
-freq_table_idx pre_freq_idx[SUP_CORE_NUM] = {};
+static freq_table_idx pre_freq_idx[SUP_CORE_NUM] = {};
 
 #endif
 
@@ -105,14 +105,14 @@ typedef struct {
         unsigned int hist_load_cnt;
 } history_load;
 static void reset_hist(history_load *hist_load);
-history_load hist_load[SUP_CORE_NUM] = {};
+static history_load hist_load[SUP_CORE_NUM] = {};
 
 typedef struct {
         unsigned int hist_max_load[SUP_HIGH_SLOW_UP_DUR];
         unsigned int hist_load_cnt;
 } history_load_high;
 static void reset_hist_high(history_load_high *hist_load);
-history_load_high hist_load_high[SUP_CORE_NUM] = {};
+static history_load_high hist_load_high[SUP_CORE_NUM] = {};
 
 #endif
 
@@ -2318,7 +2318,7 @@ bail_acq_sema_failed:
         return 0;
 }
 
-#if 0
+#ifdef CONFIG_POWERSUSPEND
 static void cpufreq_intellidemand_power_suspend(struct power_suspend *h)
 {
         mutex_lock(&dbs_mutex);
@@ -2402,8 +2402,8 @@ static int __init cpufreq_gov_dbs_init(void)
                                                          "dbs_sync/%d", i);
         }
 
-#if 0
-        register_power_suspend(&cpufreq_intellidemand_power_suspend_info);
+#ifdef CONFIG_POWERSUSPEND
+	register_power_suspend(&cpufreq_intellidemand_power_suspend_info);
 #endif
         return cpufreq_register_governor(&cpufreq_gov_intellidemand);
 }
