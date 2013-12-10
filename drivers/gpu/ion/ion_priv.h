@@ -393,4 +393,9 @@ void ion_page_pool_free(struct ion_page_pool *, struct page *);
 int ion_page_pool_shrink(struct ion_page_pool *pool, gfp_t gfp_mask,
 			  int nr_to_scan);
 
+struct ion_handle *ion_handle_get_by_id(struct ion_client *client,
+					int id);
+
+int ion_handle_put(struct ion_handle *handle);
+
 #endif /* _ION_PRIV_H */
