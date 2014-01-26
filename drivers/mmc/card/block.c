@@ -1471,21 +1471,6 @@ static int mmc_blk_err_check(struct mmc_card *card,
 	struct request *req = mq_mrq->req;
 	int ecc_err = 0, gen_err = 0;
 
-	#ifdef CONFIG_MACH_LGE
-	#ifndef CONFIG_MACH_MSM8974_B1_KR
-	if (card->host->index == 2 && !mmc_cd_get_status(card->host)) {
-		printk(KERN_INFO "[LGE][MMC][%-18s( )] sd-no-exist, skip next\n", __func__);
-		return MMC_BLK_NOMEDIUM;
-	}
-	#else // for b1 to fix sd host index
-	if (card->host->index == 1 && !mmc_cd_get_status(card->host))
-	{
-		printk(KERN_INFO "[LGE][MMC][%-18s( )] sd-no-exist, skip next\n", __func__);
-		return MMC_BLK_NOMEDIUM;
-	}
-	#endif
-	#endif
-
 	/*
 	 * sbc.error indicates a problem with the set block count
 	 * command.  No data will have been transferred.
@@ -1528,7 +1513,6 @@ static int mmc_blk_err_check(struct mmc_card *card,
 	 */
 	if (!mmc_host_is_spi(card->host) && rq_data_dir(req) != READ) {
 		u32 status;
-		unsigned long timeout;
 
 		#ifdef CONFIG_MACH_LGE
 		/*                                         
@@ -1546,15 +1530,6 @@ static int mmc_blk_err_check(struct mmc_card *card,
 			gen_err = 1;
 		}
 
-		timeout = jiffies + msecs_to_jiffies(MMC_BLK_TIMEOUT_MS);
-
-		#ifdef CONFIG_MACH_LGE
-		/*                                         
-                                                                     
-   */
-		timeout_5s = jiffies + msecs_to_jiffies(5000);
-		#endif
-
 		do {
 			int err = get_card_status(card, &status, 5);
 			if (err) {
@@ -1570,29 +1545,6 @@ static int mmc_blk_err_check(struct mmc_card *card,
 				gen_err = 1;
 			}
 
-			/* Timeout if the device never becomes ready for data
-			 * and never leaves the program state.
-			 */
-			if (time_after(jiffies, timeout)) {
-				pr_err("%s: Card stuck in programming state!"\
-					" %s %s\n", mmc_hostname(card->host),
-					req->rq_disk->disk_name, __func__);
-
-				return MMC_BLK_CMD_ERR;
-			}
-			#ifdef CONFIG_MACH_LGE
-			/*                                         
-                                                                      
-    */
-			else if(time_after(jiffies, timeout_5s)) {
-				time_in_stuck += 5;
-				pr_warning("%s: might be stuck in programming state"\
-				", elasped = %ld seconds %s %s\n", mmc_hostname(card->host),
-				time_in_stuck, req->rq_disk->disk_name, __func__);
-				timeout_5s = jiffies + msecs_to_jiffies(5000);
-			}
-			#endif
-
 			/*
 			 * Some cards mishandle the status bits,
 			 * so make sure to check both the busy
@@ -1604,7 +1556,7 @@ static int mmc_blk_err_check(struct mmc_card *card,
 
 	/* if general error occurs, retry the write operation. */
 	if (gen_err) {
-		pr_warn("%s: retrying write for general error\n",
+		pr_warning("%s: retrying write for general error\n",
 				req->rq_disk->disk_name);
 		return MMC_BLK_RETRY;
 	}
