@@ -125,6 +125,12 @@ config CPU_FREQ_DEFAULT_GOV_BACON
 	  loading your cpufreq low-level hardware driver, using the
 	  'bacon' governor for latency-sensitive workloads.
 
+config CPU_FREQ_DEFAULT_GOV_HYPER
+	bool "HYPER"
+	select CPU_FREQ_GOV_HYPER
+	---help---
+	  Use the CPUFreq governor 'HYPER' as default.
+
 endchoice
 
 config CPU_FREQ_GOV_PERFORMANCE
