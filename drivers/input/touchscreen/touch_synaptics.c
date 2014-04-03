@@ -292,9 +292,8 @@ touch_maker_id get_touch_maker_id(void)
 
 /* LIMIT: Include ONLY A1, B1, Vu3, Z models used MSM8974 AA/AB */
 #ifdef CONFIG_ADC_READY_CHECK_JB
-	while ((qpnp_vadc_is_ready() != 0) && (trial_us < (150))) {
-		//udelay(1);
-		msleep(10);
+	while ((qpnp_vadc_is_ready() != 0) && (trial_us < (200 * 1000))) {
+		udelay(1);
 		trial_us++;
 	}
 

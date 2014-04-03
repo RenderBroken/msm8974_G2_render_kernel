@@ -276,7 +276,7 @@ static void msm_restart_prepare(const char *cmd)
 	pm8xxx_reset_pwr_off(1);
 
 	/* Hard reset the PMIC unless memory contents must be maintained. */
-	/*                                                                          */
+	/* LGE_CHANGE : there's no reason to forcing a hard reset on reboot request */
 	if (true || get_dload_mode() || (cmd != NULL && cmd[0] != '\0'))
 		qpnp_pon_system_pwr_off(PON_POWER_OFF_WARM_RESET);
 	else
@@ -287,6 +287,8 @@ static void msm_restart_prepare(const char *cmd)
 			__raw_writel(0x77665500, restart_reason);
 		} else if (!strncmp(cmd, "recovery", 8)) {
 			__raw_writel(0x77665502, restart_reason);
+		} else if (!strncmp(cmd, "adbrecovery", 11)) {
+			__raw_writel(0x77665511, restart_reason);
 #ifdef CONFIG_LGE_BNR_RECOVERY_REBOOT
 			/* PC Sync B&R : Add restart reason */
 		} else if (!strncmp(cmd, "--bnr_recovery", 14)) {

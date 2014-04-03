@@ -3013,7 +3013,7 @@ if ((!strncmp(ts->fw_info.ic_fw_identifier, "PLG208", 6)) || (!strncmp(ts->fw_in
 		}
 #endif	//#ifdef CONFIG_MACH_MSM8974_G2_OPEN_COM
 #endif	//#ifdef CONFIG_MACH_MSM8974_VU3_KR
-#endif	//                               
+#endif	//#ifdef CONFIG_LGE_Z_TOUCHSCREEN
 	}
 #else
 	if ((!strcmp(ts->pdata->fw_version, ts->fw_info.ic_fw_version)
@@ -5371,6 +5371,8 @@ static int touch_lcd_suspend(struct device *device)
 			touch_double_tap_wakeup_enable(ts);
 			if(f54_window_crack)
 				f54_window_crack = 2;
+		} else if (lge_get_boot_mode() != LGE_BOOT_MODE_NORMAL) {
+			touch_power_cntl(ts, ts->pdata->role->suspend_pwr);
 		} else
 #endif
 #if defined(CONFIG_MACH_MSM8974_G2_OPEN_COM) || defined(CONFIG_MACH_MSM8974_G2_OPT_AU)
