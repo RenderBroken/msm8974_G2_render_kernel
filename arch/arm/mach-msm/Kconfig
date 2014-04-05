@@ -1925,6 +1925,12 @@ config CPU_OVERCLOCK
 	help
 	  Krait overclocking up to 2.5 GHz
 
+config CPU_UNDERCLOCK
+	bool "Enable CPU Underclocking"
+	default n
+	help
+	   msm8974 underclocking to 96Mhz
+
 config MSM_AVS_HW
 	bool "Enable Adaptive Voltage Scaling (AVS)"
 	default n
