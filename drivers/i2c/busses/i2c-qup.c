@@ -1776,6 +1776,9 @@ static int qup_i2c_suspend(struct device *device)
 		pm_runtime_set_suspended(device);
 		pm_runtime_enable(device);
 	}
+#if defined(CONFIG_TOUCHSCREEN_ATMEL_S540)
+	i2c_suspended = true;
+#endif
 	return 0;
 }
 
