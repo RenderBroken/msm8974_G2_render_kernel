@@ -28,6 +28,10 @@
 #include <linux/err.h>
 #endif
 
+#ifdef CONFIG_TOUCHSCREEN_SWEEP2WAKE
+#include <linux/input/sweep2wake.h>
+#endif
+
 #include "mdss_dsi.h"
 
 #define DT_CMD_HDR 6
@@ -519,6 +523,11 @@ static int mdss_dsi_panel_on(struct mdss_panel_data *pdata)
 
 #endif
 	pr_debug("%s:-\n", __func__);
+
+#ifdef CONFIG_TOUCHSCREEN_SWEEP2WAKE
+	scr_suspended = false;
+#endif
+
 	return 0;
 }
 
@@ -551,6 +560,11 @@ static int mdss_dsi_panel_off(struct mdss_panel_data *pdata)
 #ifdef CONFIG_OLED_SUPPORT
 	pr_info("[Zee][OLED] %s success\n", __func__);
 #endif
+
+#ifdef CONFIG_TOUCHSCREEN_SWEEP2WAKE
+        scr_suspended = true;
+#endif
+
 	return 0;
 }
 
