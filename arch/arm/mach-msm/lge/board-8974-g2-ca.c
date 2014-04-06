@@ -40,16 +40,19 @@
 #include <mach/rpm-smd.h>
 #include <mach/rpm-regulator-smd.h>
 #include <mach/socinfo.h>
-#include <mach/msm_bus_board.h>
+#include <mach/msm_smem.h>
 #include "../board-dt.h"
 #include "../clock.h"
 #include "../devices.h"
 #include "../spm.h"
+#include "../pm.h"
 #include "../modem_notifier.h"
-#include "../lpm_resources.h"
 #include "../platsmp.h"
 #include <mach/board_lge.h>
 
+#ifdef CONFIG_MACH_MSM8974_G2_VZW
+#include <linux/platform_data/lge_android_usb.h>
+#endif
 #if defined(CONFIG_LCD_KCAL)
 /*             
                           
@@ -109,13 +112,33 @@ void __init lge_add_lcd_misc_devices(void)
 	platform_device_register(&lcd_misc_device);
 }
 #endif
+#ifdef CONFIG_MACH_MSM8974_G2_VZW
+struct lge_android_usb_platform_data lge_android_usb_pdata = {
+	.vendor_id = 0x1004,
+	.factory_pid = 0x6000,
+	.iSerialNumber = 0,
+	.product_name = "LGE Android Phone",
+	.manufacturer_name = "LG Electronics Inc.",
+	.factory_composition = "acm,diag",
+};
+struct platform_device lge_android_usb_device = {
+	.name = "lge_android_usb",
+	.id = -1,
+	.dev = {
+		.platform_data = &lge_android_usb_pdata,
+	},
+};
+void __init lge_add_android_usb_devices(void)
+{
+	platform_device_register(&lge_android_usb_device);
+}
+#endif /* CONFIG_MACH_MSM8974_G2_VZW */
 
 #if defined(CONFIG_LCD_KCAL)
 /*             
                           
                                 
 */
-
 extern int g_kcal_r;
 extern int g_kcal_g;
 extern int g_kcal_b;
@@ -125,9 +148,9 @@ int kcal_set_values(int kcal_r, int kcal_g, int kcal_b)
 #if defined(CONFIG_MACH_MSM8974_A1)
 		int is_update = 0;
 
-		int kcal_r_limit = 0;
-		int kcal_g_limit = 0;
-		int kcal_b_limit = 0;
+		int kcal_r_limit = 250;
+		int kcal_g_limit = 250;
+		int kcal_b_limit = 253;
 
 		g_kcal_r = kcal_r < kcal_r_limit ? kcal_r_limit : kcal_r;
 		g_kcal_g = kcal_g < kcal_g_limit ? kcal_g_limit : kcal_g;
@@ -142,7 +165,6 @@ int kcal_set_values(int kcal_r, int kcal_g, int kcal_b)
 		g_kcal_g = kcal_g;
 		g_kcal_b = kcal_b;
 #endif
-
 	return 0;
 }
 
@@ -192,10 +214,11 @@ extern void init_bcm_wifi(void);
 
 void __init msm8974_add_drivers(void)
 {
+	msm_smem_init();
 	msm_init_modem_notifier_list();
 	msm_smd_init();
 	msm_rpm_driver_init();
-	msm_lpmrs_module_init();
+	msm_pm_sleep_status_init();
 	rpm_regulator_smd_driver_init();
 	msm_spm_device_init();
 	krait_power_init();
@@ -217,6 +240,9 @@ void __init msm8974_add_drivers(void)
 #endif
 #ifdef CONFIG_LGE_DIAG_ENABLE_SYSFS
 	lge_add_diag_devices();
+#endif
+#ifdef CONFIG_MACH_MSM8974_G2_VZW
+	lge_add_android_usb_devices();
 #endif
 /*                                                                    */
 #if defined(CONFIG_BCMDHD) || defined(CONFIG_BCMDHD_MODULE)
