@@ -4162,6 +4162,33 @@ static int taiko_volatile(struct snd_soc_codec *ssc, unsigned int reg)
 	return 0;
 }
 
+#ifndef CONFIG_SOUND_CONTROL_HAX_3_GPL
+static
+#endif
+int taiko_write(struct snd_soc_codec *codec, unsigned int reg,
+	unsigned int value)
+{
+	int ret;
+	struct wcd9xxx *wcd9xxx = codec->control_data;
+
+	if (reg == SND_SOC_NOPM)
+		return 0;
+
+	BUG_ON(reg > TAIKO_MAX_REGISTER);
+
+	if (!taiko_volatile(codec, reg)) {
+		ret = snd_soc_cache_write(codec, reg, value);
+		if (ret != 0)
+			dev_err(codec->dev, "Cache write to %x failed: %d\n",
+				reg, ret);
+	}
+
+	return wcd9xxx_reg_write(&wcd9xxx->core_res, reg, value);
+}
+#ifdef CONFIG_SOUND_CONTROL_HAX_3_GPL
+EXPORT_SYMBOL(taiko_write);
+#endif
+
 #ifndef CONFIG_SOUND_CONTROL_HAX_3_GPL 
 static
 #endif
@@ -4170,6 +4197,7 @@ unsigned int taiko_read(struct snd_soc_codec *codec,
 {
 	unsigned int val;
 	int ret;
+
 	struct wcd9xxx *wcd9xxx = codec->control_data;
 
 	if (reg == SND_SOC_NOPM)
@@ -4187,46 +4215,11 @@ unsigned int taiko_read(struct snd_soc_codec *codec,
 				reg, ret);
 	}
 
-	return wcd9xxx_reg_write(&wcd9xxx->core_res, reg, value);
-}
-#ifdef CONFIG_SOUND_CONTROL_HAX_3_GPL
-EXPORT_SYMBOL(taiko_read);
-#endif
-
-#ifdef CONFIG_SOUND_CONTROL_HAX_3_GPL
-extern int reg_access(unsigned int);
-#endif
-
-#ifndef CONFIG_SOUND_CONTROL_HAX_3_GPL
-static
-#endif
-int taiko_write(struct snd_soc_codec *codec, unsigned int reg,
-	unsigned int value)
-{
-	int ret;
-#ifdef CONFIG_SOUND_CONTROL_HAX_3_GPL
-	int val;
-#endif
-
-	struct wcd9xxx *wcd9xxx = codec->control_data;
-
-	if (reg == SND_SOC_NOPM)
-		return 0;
-
-	BUG_ON(reg > TAIKO_MAX_REGISTER);
-
-	if (!taiko_volatile(codec, reg)) {
-		ret = snd_soc_cache_write(codec, reg, value);
-		if (ret != 0)
-			dev_err(codec->dev, "Cache write to %x failed: %d\n",
-				reg, ret);
-	}
-
 	val = wcd9xxx_reg_read(&wcd9xxx->core_res, reg);
 	return val;
 }
 #ifdef CONFIG_SOUND_CONTROL_HAX_3_GPL
-EXPORT_SYMBOL(taiko_write);
+EXPORT_SYMBOL(taiko_read);
 #endif
 
 static int taiko_startup(struct snd_pcm_substream *substream,
