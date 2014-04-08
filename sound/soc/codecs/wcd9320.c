@@ -4162,7 +4162,7 @@ static int taiko_volatile(struct snd_soc_codec *ssc, unsigned int reg)
 	return 0;
 }
 
-#ifndef CONFIG_SOUND_CONTROL_HAX_3_GPL 
+#ifndef CONFIG_SOUND_CONTROL_HAX_3_GPL
 static
 #endif
 unsigned int taiko_read(struct snd_soc_codec *codec,
@@ -4187,7 +4187,8 @@ unsigned int taiko_read(struct snd_soc_codec *codec,
 				reg, ret);
 	}
 
-	return wcd9xxx_reg_write(&wcd9xxx->core_res, reg, value);
+	val = wcd9xxx_reg_read(codec->control_data, reg);
+	return val;
 }
 #ifdef CONFIG_SOUND_CONTROL_HAX_3_GPL
 EXPORT_SYMBOL(taiko_read);
@@ -4221,9 +4222,16 @@ int taiko_write(struct snd_soc_codec *codec, unsigned int reg,
 			dev_err(codec->dev, "Cache write to %x failed: %d\n",
 				reg, ret);
 	}
-
+#ifdef CONFIG_SOUND_CONTROL_HAX_3_GPL
+	if (!reg_access(reg))
+		val = wcd9xxx_reg_read_safe(codec->control_data, reg);
+	else
+		val = value;
+	return wcd9xxx_reg_write(codec->control_data, reg, val);
+#else
 	val = wcd9xxx_reg_read(&wcd9xxx->core_res, reg);
 	return val;
+#endif
 }
 #ifdef CONFIG_SOUND_CONTROL_HAX_3_GPL
 EXPORT_SYMBOL(taiko_write);
