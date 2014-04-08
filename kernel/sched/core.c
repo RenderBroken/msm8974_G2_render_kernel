@@ -1446,11 +1446,10 @@ ttwu_do_wakeup(struct rq *rq, struct task_struct *p, int wake_flags)
 		u64 delta = rq->clock - rq->idle_stamp;
 		u64 max = 2*sysctl_sched_migration_cost;
 
-		update_avg(&rq->avg_idle, delta);
-
-		if (rq->avg_idle > max)
+		if (delta > max)
 			rq->avg_idle = max;
-
+		else
+			update_avg(&rq->avg_idle, delta);
 		rq->idle_stamp = 0;
 	}
 #endif
@@ -3571,6 +3570,9 @@ static inline bool owner_running(struct mutex *lock, struct task_struct *owner)
  */
 int mutex_spin_on_owner(struct mutex *lock, struct task_struct *owner)
 {
+	if (!sched_feat(OWNER_SPIN))
+		return 0;
+
 	rcu_read_lock();
 	while (owner_running(lock, owner)) {
 		if (need_resched())
@@ -3586,27 +3588,6 @@ int mutex_spin_on_owner(struct mutex *lock, struct task_struct *owner)
 	 * success only when lock->owner is NULL.
 	 */
 	return lock->owner == NULL;
-}
-
-/*
- * Initial check for entering the mutex spinning loop
- */
-int mutex_can_spin_on_owner(struct mutex *lock)
-{
-	int retval = 1;
-
-	if (!sched_feat(OWNER_SPIN))
-		return 0;
-
-	rcu_read_lock();
-	if (lock->owner)
-		retval = lock->owner->on_cpu;
-	rcu_read_unlock();
-	/*
-	 * if lock->owner is not set, the mutex owner may have just acquired
-	 * it and not set the owner yet or the mutex has been released.
-	 */
-	return retval;
 }
 #endif
 
@@ -5718,7 +5699,6 @@ migration_call(struct notifier_block *nfb, unsigned long action, void *hcpu)
 
 	case CPU_UP_PREPARE:
 		rq->calc_load_update = calc_load_update;
-		rq->next_balance = jiffies;
 		break;
 
 	case CPU_ONLINE:
@@ -7209,6 +7189,9 @@ void __init sched_init_smp(void)
 
 	hotcpu_notifier(cpuset_cpu_active, CPU_PRI_CPUSET_ACTIVE);
 	hotcpu_notifier(cpuset_cpu_inactive, CPU_PRI_CPUSET_INACTIVE);
+
+	/* RT runtime code needs to handle some hotplug events */
+	hotcpu_notifier(update_runtime, 0);
 
 	init_hrtick();
 
