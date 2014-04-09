@@ -1,9 +1,9 @@
 #!/bin/bash
 build=/home/savoca/furnace_output/lg
 kernel="furnace"
-version="2.0.0"
+version="2.0.1"
 rom="lg"
-toolchain=/home/savoca/toolchains/arm-eabi-4.7/bin/
+toolchain=/home/savoca/toolchains/android-toolchain-eabi/bin/
 toolchain2="arm-eabi-"
 kerneltype="zImage"
 jobcount="-j4"
@@ -40,7 +40,6 @@ case "$choice" in
 	"ls980")
 		variant="ls980"
 		config="ls980_defconfig"
-		cmdline="console=ttyHSL0,115200,n8 androidboot.hardware=g2 user_debug=31 msm_rtb.filter=0x0 mdss_mdp.panel=1:dsi:0:qcom,mdss_dsi_g2_lgd_cmd gpt"
 		ramdisk=ramdisk/ls980.lz4
 		break;;
 	"vs980")
