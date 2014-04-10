@@ -74,7 +74,7 @@ config THERMAL_PM8XXX
 	  to software.
 
 choice
-	prompt "MSM Thermal Monitor Types
+	prompt "MSM Thermal Monitor Types"
 	default THERMAL_MONITOR
 
 config INTELLI_THERMAL
