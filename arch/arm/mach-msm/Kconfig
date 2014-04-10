@@ -3124,4 +3124,12 @@ config KRAIT_REGULATOR
 	 line from the PMIC. This supply line is powered by multiple
 	 regulators running in ganged mode inside the PMIC. Enable
 	 this option to support such configurations.
+
+config AOSP
+	bool "Build the kernel for AOSP instead of Stock"
+	default n
+	help
+	 Fixes functions on AOSP or CM. Kernels for stock LG rom's 
+         are functional if this is not enabled.
+
 endif
