@@ -71,7 +71,7 @@ MODULE_LICENSE("GPLv2");
 int s2w_switch = S2W_DEFAULT;
 static int touch_x = 0, touch_y = 0;
 static bool touch_x_called = false, touch_y_called = false;
-static bool exec_count = true;
+static bool scr_suspended = false, exec_count = true;
 static bool scr_on_touch = false, barrier[2] = {false, false};
 static bool r_barrier[2] = {false, false};
 #ifndef CONFIG_HAS_EARLYSUSPEND
