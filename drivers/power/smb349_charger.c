@@ -3551,7 +3551,7 @@ static void smb349_batt_external_power_changed(struct power_supply *psy)
 			smb349_set_usb_5_1_mode(smb349_chg, 0);
 			vzw_fast_chg_change_usb_charging_state(smb349_chg);
 		}
-		pr_info("VZW_CHG_PRESENT = USB_PRESENT\n");
+		//pr_info("VZW_CHG_PRESENT = USB_PRESENT\n");
 #else
 #if SMB349_BOOSTBACK_WORKAROUND
 		if (smb349_chg->is_bb_work_case)

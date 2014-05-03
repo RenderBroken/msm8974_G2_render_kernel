@@ -1481,8 +1481,8 @@ void xo_therm_logging(void)
 #endif
 #endif
 #endif
-	printk(KERN_INFO "[XO_THERM] Result:%lld Raw:%d\n",
-		tmp.physical, tmp.adc_code);
+	//printk(KERN_INFO "[XO_THERM] Result:%lld Raw:%d\n",
+	//	tmp.physical, tmp.adc_code);
 }
 #endif
 
