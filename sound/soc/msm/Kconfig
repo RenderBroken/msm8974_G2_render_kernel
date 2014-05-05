@@ -182,7 +182,7 @@ config SND_SOC_MSM8974
 	select SND_SOC_WCD9320
 	select SND_DYNAMIC_MINORS
 	select AUDIO_OCMEM
-	select DOLBY_DAP
+	#select DOLBY_DAP
 	help
 	 To add support for SoC audio on MSM8974.
 	 This will enable sound soc drivers which
@@ -215,7 +215,6 @@ config SND_SOC_MSM8226
 	select SND_SOC_MSM_HOSTLESS_PCM
 	select SND_SOC_WCD9306
 	select SND_DYNAMIC_MINORS
-	select DOLBY_DAP
 	help
 	 To add support for SoC audio on MSM8226.
 	 This will enable sound soc drivers which
@@ -270,49 +269,4 @@ config SND_SOC_MDM9625
 	select SND_DYNAMIC_MINORS
 	help
 	 To add support for SoC audio on MDM9625 boards.
-	 
-# LGE_BSP_AUDIO, jy0127.jang@lge.com, mi2s interface for FM Radio
-config SND_FM_RADIO
-	bool "mi2s interface for FM Radio"
-	default n
-	help
-		mi2s interface for FM Radio
-
-config SND_VOICE_VOLUME
-	int "Level of voice volume"
-	range 4 256
-	default 9
-	help
-	  Level of voice volume.
-
-config SND_VOIP_VOLUME
-	int "Level of voice volume"
-	range 4 256
-	default 9
-	help
-	  Level of voice volume.
-
-config HIFI_SOUND
-	bool "HIFI 24bit SOUND"
-	default y
-	help
-	 HIFI 24bit sound
-
-config SND_LGE_EFFECT
-	bool "LGE DSP EFFECT"
-	default y
-	help
-	 To support LGE DSP EFFECT
-	 
-config SND_LGE_NORMALIZER
-	bool "LGE DSP NORMALIZER"
-	default y
-	help
-	 To support LGE DSP NORMALIZER
-
-config SND_LGE_MABL
-    bool "LGE DSP MABL"
-    default y
-    help
-     To support LGE DSP MABL
 endmenu

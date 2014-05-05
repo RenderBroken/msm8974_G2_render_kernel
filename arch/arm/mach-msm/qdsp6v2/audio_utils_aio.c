@@ -179,16 +179,6 @@ static int audio_aio_pause(struct q6audio_aio  *audio)
 			pr_err("%s[%p]: pause cmd failed rc=%d\n",
 				__func__, audio, rc);
 
-		if (rc == 0) {
-			/* Send suspend only if pause was successful */
-			rc = q6asm_cmd(audio->ac, CMD_SUSPEND);
-			if (rc < 0)
-				pr_err("%s[%p]: suspend cmd failed rc=%d\n",
-					__func__, audio, rc);
-		} else
-			pr_err("%s[%p]: not sending suspend since pause failed\n",
-				__func__, audio);
-
 	} else
 		pr_err("%s[%p]: Driver not enabled\n", __func__, audio);
 	return rc;
@@ -1105,7 +1095,6 @@ int audio_aio_open(struct q6audio_aio *audio, struct file *file)
 	int rc = 0;
 	int i;
 	struct audio_aio_event *e_node = NULL;
-	struct list_head *ptr, *next;
 
 	/* Settings will be re-config at AUDIO_SET_CONFIG,
 	 * but at least we need to have initial config
@@ -1158,34 +1147,24 @@ int audio_aio_open(struct q6audio_aio *audio, struct file *file)
 		else {
 			pr_err("%s[%p]:event pkt alloc failed\n",
 				__func__, audio);
-			rc = -ENOMEM;
-			goto cleanup;
+			break;
 		}
 	}
 	audio->client = msm_audio_ion_client_create(UINT_MAX,
 						    "Audio_Dec_Client");
 	if (IS_ERR_OR_NULL(audio->client)) {
 		pr_err("Unable to create ION client\n");
-		rc = -ENOMEM;
-		goto cleanup;
+		rc = -EACCES;
+		goto fail;
 	}
 	pr_debug("Ion client create in audio_aio_open %p", audio->client);
 
 	rc = register_volume_listener(audio);
 	if (rc < 0)
-		goto ion_cleanup;
+		goto fail;
 
 	return 0;
-ion_cleanup:
-	msm_audio_ion_client_destroy(audio->client);
-	audio->client = NULL;
-cleanup:
-	list_for_each_safe(ptr, next, &audio->free_event_queue) {
-		e_node = list_first_entry(&audio->free_event_queue,
-				   struct audio_aio_event, list);
-		list_del(&e_node->list);
-		kfree(e_node);
-	}
+
 fail:
 	return rc;
 }
@@ -1199,7 +1178,6 @@ long audio_aio_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 	case AUDIO_GET_STATS: {
 		struct msm_audio_stats stats;
 		uint64_t timestamp;
-		memset(&stats, 0, sizeof(struct msm_audio_stats));
 		stats.byte_count = atomic_read(&audio->in_bytes);
 		stats.sample_count = atomic_read(&audio->in_samples);
 		rc = q6asm_get_session_time(audio->ac, &timestamp);

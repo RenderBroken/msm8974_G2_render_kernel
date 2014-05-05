@@ -535,7 +535,6 @@ static int soc_compr_set_params_fe(struct snd_compr_stream *cstream,
 
 out:
 	fe->dpcm[stream].runtime_update = SND_SOC_DPCM_UPDATE_NO;
-       kfree(hw_params);
 	mutex_unlock(&fe->card->mutex);
 	return ret;
 }
@@ -756,14 +755,6 @@ int soc_new_compress(struct snd_soc_pcm_runtime *rtd, int num)
 
 	rtd->compr = compr;
 	compr->private_data = rtd;
-
-	if (platform->driver->pcm_new) {
-		ret = platform->driver->pcm_new(rtd);
-		if (ret < 0) {
-			pr_err("asoc: compress pcm constructor failed\n");
-			goto compr_err;
-		}
-	}
 
 	printk(KERN_INFO "compress asoc: %s <-> %s mapping ok\n", codec_dai->name,
 		cpu_dai->name);

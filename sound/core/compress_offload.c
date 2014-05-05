@@ -614,14 +614,12 @@ snd_compr_set_metadata(struct snd_compr_stream *stream, unsigned long arg)
 	return retval;
 }
 
-
 static inline int
 snd_compr_tstamp(struct snd_compr_stream *stream, unsigned long arg)
 {
-	struct snd_compr_tstamp tstamp;
+	struct snd_compr_tstamp tstamp = {0};
 	int ret;
 
-	memset(&tstamp, 0, sizeof(tstamp));
 	ret = snd_compr_update_tstamp(stream, &tstamp);
 	if (ret == 0)
 		ret = copy_to_user((struct snd_compr_tstamp __user *)arg,
@@ -821,7 +819,7 @@ static long snd_compr_ioctl(struct file *f, unsigned int cmd, unsigned long arg)
 
 	case _IOC_NR(SNDRV_COMPRESS_SET_METADATA):
 		retval = snd_compr_set_metadata(stream, arg);
-	break;
+		break;
 
 	case _IOC_NR(SNDRV_COMPRESS_GET_METADATA):
 		retval = snd_compr_get_metadata(stream, arg);

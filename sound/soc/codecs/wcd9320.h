@@ -33,13 +33,6 @@
 
 extern const u8 taiko_reg_readable[TAIKO_CACHE_SIZE];
 extern const u8 taiko_reset_reg_defaults[TAIKO_CACHE_SIZE];
-
-#ifdef CONFIG_MACH_LGE
-/* Add sysfs for SPKR_DRV_GAIN & Earjack type, jongyeol.yang, 2012-11-28 */
-extern struct snd_soc_codec *lge_taiko_codec;
-extern struct wcd9xxx_mbhc *lge_taiko_mbhc;
-#endif
-
 struct taiko_codec_dai_data {
 	u32 rate;
 	u32 *ch_num;
@@ -149,17 +142,14 @@ struct mad_audio_cal {
 	struct mad_rms_ultrasound_info ultrasound_info;
 } __packed;
 
-#ifdef CONFIG_MACH_LGE
-extern bool mbhc_enabled;
-#endif
 extern int taiko_mclk_enable(struct snd_soc_codec *codec, int mclk_enable,
 			     bool dapm);
 extern int taiko_hs_detect(struct snd_soc_codec *codec,
 			   struct wcd9xxx_mbhc_config *mbhc_cfg);
-extern void taiko_hs_detect_exit(struct snd_soc_codec *codec);
 extern void *taiko_get_afe_config(struct snd_soc_codec *codec,
 				  enum afe_config_type config_type);
 
+extern int is_mbhc_disabled(void);
 extern void taiko_event_register(
 	int (*machine_event_cb)(struct snd_soc_codec *codec,
 				enum wcd9xxx_codec_event),

@@ -9,6 +9,8 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
  */
+
+
 #include <linux/init.h>
 #include <linux/err.h>
 #include <linux/module.h>
@@ -41,48 +43,12 @@
 
 #include "msm-pcm-routing-v2.h"
 #include "audio_ocmem.h"
-#include "msm-audio-effects-q6-v2.h"
-
-#ifdef CONFIG_SND_LGE_EFFECT
-#include "lge_dsp_sound_effect.h"
-int lgesoundeffect_enable;
-int lgesoundeffect_modetype;
-int lgesoundeffect_outputdevicetype;
-int lgesoundeffect_mediatype;
-int lgesoundeffect_geq_band;
-int lgesoundeffect_geq_gain;
-#endif
-#ifdef CONFIG_SND_LGE_NORMALIZER
-#include "lge_dsp_sound_normalizer.h"
-int lgesoundnormalizer_enable;
-int lgesoundnormalizer_makeupgain;
-int lgesoundnormalizer_prefilter;
-int lgesoundnormalizer_limiterthreshold;
-int lgesoundnormalizer_limiterslope;
-int lgesoundnormalizer_compressorthreshold;
-int lgesoundnormalizer_compressorslope;
-int lgesoundnormalizer_devicespeaker;
-int lgesoundnormalizer_onoff;
-#endif
-#ifdef CONFIG_SND_LGE_MABL
-#include "lge_dsp_sound_mabl.h"
-int lgesoundmabl_devicespeaker;
-int lgesoundmabl_monoenable;
-int lgesoundmabl_lrbalancecontrol;
-#endif
 
 /* Default values used if user space does not set */
 #define COMPR_PLAYBACK_MIN_FRAGMENT_SIZE (8 * 1024)
-
-#ifdef CONFIG_HIFI_SOUND
-#define COMPR_PLAYBACK_MAX_FRAGMENT_SIZE (256 * 1024)
-#define COMPR_PLAYBACK_MAX_NUM_FRAGMENTS (16 * 8)
-#else
 #define COMPR_PLAYBACK_MAX_FRAGMENT_SIZE (128 * 1024)
-#define COMPR_PLAYBACK_MAX_NUM_FRAGMENTS (16 * 4)
-#endif
-
 #define COMPR_PLAYBACK_MIN_NUM_FRAGMENTS (4)
+#define COMPR_PLAYBACK_MAX_NUM_FRAGMENTS (16 * 4)
 
 #define COMPRESSED_LR_VOL_MAX_STEPS	0x2000
 const DECLARE_TLV_DB_LINEAR(msm_compr_vol_gain, 0,
@@ -92,7 +58,6 @@ struct msm_compr_pdata {
 	atomic_t audio_ocmem_req;
 	struct snd_compr_stream *cstream[MSM_FRONTEND_DAI_MAX];
 	uint32_t volume[MSM_FRONTEND_DAI_MAX][2]; /* For both L & R */
-	struct msm_compr_audio_effects *audio_effects[MSM_FRONTEND_DAI_MAX];
 };
 
 struct msm_compr_audio {
@@ -110,13 +75,12 @@ struct msm_compr_audio {
 	uint32_t byte_offset;
 	uint32_t copied_total;
 	uint32_t bytes_received;
+
 	uint16_t session_id;
 
 	uint32_t sample_rate;
 	uint32_t num_channels;
-#ifdef CONFIG_HIFI_SOUND
-	uint32_t bits_per_sample;
-#endif
+
 	uint32_t cmd_ack;
 	uint32_t cmd_interrupt;
 	uint32_t drain_ready;
@@ -125,20 +89,12 @@ struct msm_compr_audio {
 	atomic_t eos;
 	atomic_t drain;
 	atomic_t xrun;
-	atomic_t error;
 
 	wait_queue_head_t eos_wait;
 	wait_queue_head_t drain_wait;
 	wait_queue_head_t flush_wait;
 
 	spinlock_t lock;
-};
-
-struct msm_compr_audio_effects {
-	struct bass_boost_params bass_boost;
-	struct virtualizer_params virtualizer;
-	struct reverb_params reverb;
-	struct eq_params equalizer;
 };
 
 static int msm_compr_set_volume(struct snd_compr_stream *cstream,
@@ -187,7 +143,6 @@ static int msm_compr_send_buffer(struct msm_compr_audio *prtd)
 
 	pr_debug("%s: bytes_received = %d copied_total = %d\n",
 		__func__, prtd->bytes_received, prtd->copied_total);
-
 	buffer_length = prtd->codec_param.buffer.fragment_size;
 	bytes_available = prtd->bytes_received - prtd->copied_total;
 	if (bytes_available < prtd->codec_param.buffer.fragment_size)
@@ -263,7 +218,7 @@ static void compr_event_handler(uint32_t opcode,
 			atomic_set(&prtd->xrun, 1);
 
 			if (atomic_read(&prtd->drain)) {
-				pr_debug("wake up on drain\n");
+				pr_debug("wake up on drain");
 				prtd->drain_ready = 1;
 				wake_up(&prtd->drain_wait);
 				atomic_set(&prtd->drain, 0);
@@ -324,14 +279,6 @@ static void compr_event_handler(uint32_t opcode,
 	case ASM_SESSION_CMDRSP_GET_SESSIONTIME_V3:
 		pr_debug("ASM_SESSION_CMDRSP_GET_SESSIONTIME_V3\n");
 		break;
-	case RESET_EVENTS:
-		pr_err("Received reset events CB, move to error state");
-		spin_lock(&prtd->lock);
-		snd_compr_fragment_elapsed(cstream);
-		prtd->copied_total = prtd->bytes_received;
-		atomic_set(&prtd->error, 1);
-		spin_unlock(&prtd->lock);
-		break;
 	default:
 		pr_debug("Not Supported Event opcode[0x%x]\n", opcode);
 		break;
@@ -350,18 +297,9 @@ static void populate_codec_list(struct msm_compr_audio *prtd)
 			COMPR_PLAYBACK_MIN_NUM_FRAGMENTS;
 	prtd->compr_cap.max_fragments =
 			COMPR_PLAYBACK_MAX_NUM_FRAGMENTS;
-#ifdef CONFIG_HIFI_SOUND
-	prtd->compr_cap.num_codecs = 5;
-#else
-	prtd->compr_cap.num_codecs = 4;
+	prtd->compr_cap.num_codecs = 2;
 	prtd->compr_cap.codecs[0] = SND_AUDIOCODEC_MP3;
-#endif
 	prtd->compr_cap.codecs[1] = SND_AUDIOCODEC_AAC;
-	prtd->compr_cap.codecs[2] = SND_AUDIOCODEC_AC3;
-	prtd->compr_cap.codecs[3] = SND_AUDIOCODEC_EAC3;
-#ifdef CONFIG_HIFI_SOUND
-	prtd->compr_cap.codecs[4] = SND_AUDIOCODEC_PCM;
-#endif
 }
 
 static int msm_compr_send_media_format_block(struct snd_compr_stream *cstream)
@@ -382,25 +320,10 @@ static int msm_compr_send_media_format_block(struct snd_compr_stream *cstream)
 		aac_cfg.ch_cfg = prtd->num_channels;
 		aac_cfg.sample_rate = prtd->sample_rate;
 		ret = q6asm_media_format_block_aac(prtd->audio_client,
-							  &aac_cfg);
+						&aac_cfg);
 		if (ret < 0)
 			pr_err("%s: CMD Format block failed\n", __func__);
 		break;
-	case FORMAT_AC3:
-		break;
-	case FORMAT_EAC3:
-		break;
-#ifdef CONFIG_HIFI_SOUND
-	case FORMAT_LINEAR_PCM:
-		pr_err("%s :FORMAT_LINEAR_PCM SR %d CH %d bps %d\n", __func__,
-			prtd->sample_rate, prtd->num_channels,prtd->bits_per_sample);
-		ret = q6asm_media_format_block_pcm_format_support(
-			prtd->audio_client, prtd->sample_rate,
-			prtd->num_channels, prtd->bits_per_sample);
-		if (ret < 0)
-		    pr_debug("%s: CMD Format block failed %d \n", __func__, ret);
-		 break;
-#endif
 	default:
 		pr_debug("%s, unsupported format, skip", __func__);
 		break;
@@ -413,9 +336,7 @@ static int msm_compr_configure_dsp(struct snd_compr_stream *cstream)
 	struct snd_compr_runtime *runtime = cstream->runtime;
 	struct msm_compr_audio *prtd = runtime->private_data;
 	struct snd_soc_pcm_runtime *soc_prtd = cstream->private_data;
-#ifndef CONFIG_HIFI_SOUND
 	uint16_t bits_per_sample = 16;
-#endif
 	int dir = IN, ret = 0;
 	struct asm_softpause_params softpause = {
 		.enable = SOFT_PAUSE_ENABLE,
@@ -430,13 +351,8 @@ static int msm_compr_configure_dsp(struct snd_compr_stream *cstream)
 	};
 
 	pr_debug("%s\n", __func__);
-#ifdef CONFIG_HIFI_SOUND
-	ret = q6asm_open_write_v2(prtd->audio_client,
-				prtd->codec, prtd->bits_per_sample);
-#else
 	ret = q6asm_open_write_v2(prtd->audio_client,
 				prtd->codec, bits_per_sample);
-#endif
 	if (ret < 0) {
 		pr_err("%s: Session out open failed\n", __func__);
 		 return -ENOMEM;
@@ -493,8 +409,10 @@ static int msm_compr_configure_dsp(struct snd_compr_stream *cstream)
 	prtd->buffer_size  = runtime->fragments * runtime->fragment_size;
 
 	ret = msm_compr_send_media_format_block(cstream);
-	if (ret < 0)
+
+	if (ret < 0) {
 		pr_err("%s, failed to send media format block\n", __func__);
+	}
 
 	return ret;
 }
@@ -516,18 +434,10 @@ static int msm_compr_open(struct snd_compr_stream *cstream)
 
 	prtd->cstream = cstream;
 	pdata->cstream[rtd->dai_link->be_id] = cstream;
-	pdata->audio_effects[rtd->dai_link->be_id] =
-		 kzalloc(sizeof(struct msm_compr_audio_effects), GFP_KERNEL);
-	if (!pdata->audio_effects[rtd->dai_link->be_id]) {
-		pr_err("%s: Could not allocate memory for effects\n", __func__);
-		kfree(prtd);
-		return -ENOMEM;
-	}
 	prtd->audio_client = q6asm_audio_client_alloc(
 				(app_cb)compr_event_handler, prtd);
 	if (!prtd->audio_client) {
-		pr_err("%s: Could not allocate memory for client\n", __func__);
-		kfree(pdata->audio_effects[rtd->dai_link->be_id]);
+		pr_err("%s: Could not allocate memory\n", __func__);
 		kfree(prtd);
 		return -ENOMEM;
 	}
@@ -540,9 +450,6 @@ static int msm_compr_open(struct snd_compr_stream *cstream)
 	prtd->copied_total = 0;
 	prtd->byte_offset = 0;
 	prtd->sample_rate = 44100;
-#ifdef CONFIG_HIFI_SOUND
-	prtd->bits_per_sample = 16;
-#endif
 	prtd->num_channels = 2;
 	prtd->drain_ready = 0;
 
@@ -552,7 +459,6 @@ static int msm_compr_open(struct snd_compr_stream *cstream)
 	atomic_set(&prtd->start, 0);
 	atomic_set(&prtd->drain, 0);
 	atomic_set(&prtd->xrun, 0);
-	atomic_set(&prtd->error, 0);
 
 	init_waitqueue_head(&prtd->eos_wait);
 	init_waitqueue_head(&prtd->drain_wait);
@@ -605,6 +511,7 @@ static int msm_compr_free(struct snd_compr_stream *cstream)
 		if (!ret)
 			pr_err("%s: CMD_EOS failed\n", __func__);
 	}
+
 	q6asm_cmd(prtd->audio_client, CMD_CLOSE);
 
 	q6asm_audio_client_buf_free_contiguous(dir,
@@ -612,7 +519,6 @@ static int msm_compr_free(struct snd_compr_stream *cstream)
 
 	q6asm_audio_client_free(prtd->audio_client);
 
-	kfree(pdata->audio_effects[soc_prtd->dai_link->be_id]);
 	kfree(prtd);
 
 	return 0;
@@ -640,18 +546,12 @@ static int msm_compr_set_params(struct snd_compr_stream *cstream,
 	case SNDRV_PCM_RATE_11025:
 		prtd->sample_rate = 11025;
 		break;
-	case SNDRV_PCM_RATE_12000:
-		prtd->sample_rate = 12000;
-		break;
 	/* ToDo: What about 12K and 24K sample rates ? */
 	case SNDRV_PCM_RATE_16000:
 		prtd->sample_rate = 16000;
 		break;
 	case SNDRV_PCM_RATE_22050:
 		prtd->sample_rate = 22050;
-		break;
-	case SNDRV_PCM_RATE_24000:
-		prtd->sample_rate = 24000;
 		break;
 	case SNDRV_PCM_RATE_32000:
 		prtd->sample_rate = 32000;
@@ -662,26 +562,6 @@ static int msm_compr_set_params(struct snd_compr_stream *cstream,
 	case SNDRV_PCM_RATE_48000:
 		prtd->sample_rate = 48000;
 		break;
-#ifdef CONFIG_HIFI_SOUND
-	case SNDRV_PCM_RATE_64000:
-		prtd->sample_rate = 64000;
-		break;
-	case SNDRV_PCM_RATE_88200:
-		prtd->sample_rate = 88200;
-		break;
-	case SNDRV_PCM_RATE_96000:
-		prtd->sample_rate = 96000;
-		break;
-	case SNDRV_PCM_RATE_176400:
-		prtd->sample_rate = 176400;
-		break;
-	case SNDRV_PCM_RATE_192000:
-		prtd->sample_rate = 192000;
-		break;
-#endif
-    default:
-        pr_err("%s: invalid sample rate",__func__);
-        break;
 	}
 
 	pr_debug("%s: sample_rate %d\n", __func__, prtd->sample_rate);
@@ -699,36 +579,11 @@ static int msm_compr_set_params(struct snd_compr_stream *cstream,
 		break;
 	}
 
-	case SND_AUDIOCODEC_AC3: {
-		prtd->codec = FORMAT_AC3;
-		break;
-	}
-
-	case SND_AUDIOCODEC_EAC3: {
-		prtd->codec = FORMAT_EAC3;
-		break;
-	}
-#ifdef CONFIG_HIFI_SOUND
-	case SND_AUDIOCODEC_PCM: {
-		pr_err("%s: SND_AUDIOCODEC_PCM BPS: %d\n",\
-			 __func__, prtd->codec_param.codec.format);
-		prtd->codec = FORMAT_LINEAR_PCM;
-		prtd->bits_per_sample = prtd->codec_param.codec.format;
-		break;
-	}
-#endif
 	default:
 		pr_err("codec not supported, id =%d\n", params->codec.id);
 		return -EINVAL;
 	}
 
-#ifdef CONFIG_HIFI_SOUND
-	if((prtd->codec != FORMAT_LINEAR_PCM) && (prtd->sample_rate > 48000)) {
-		pr_err("%s: Out  of  bounds sample rate for codec %d\n",\
-				 __func__, prtd->codec);
-		return -EINVAL;
-	}
-#endif
 	ret = msm_compr_configure_dsp(cstream);
 
 	return ret;
@@ -750,14 +605,6 @@ static int msm_compr_trigger(struct snd_compr_stream *cstream, int cmd)
 		pr_err("%s: Unsupported stream type\n", __func__);
 		return -EINVAL;
 	}
-
-	spin_lock_irqsave(&prtd->lock, flags);
-	if (atomic_read(&prtd->error)) {
-		pr_err("%s Got RESET EVENTS notification, return immediately", __func__);
-		spin_unlock_irqrestore(&prtd->lock, flags);
-		return 0;
-	}
-	spin_unlock_irqrestore(&prtd->lock, flags);
 
 	switch (cmd) {
 	case SNDRV_PCM_TRIGGER_START:
@@ -835,12 +682,14 @@ static int msm_compr_trigger(struct snd_compr_stream *cstream, int cmd)
 			break;
 		}
 		atomic_set(&prtd->eos, 1);
+
 		if (prtd->bytes_received > prtd->copied_total) {
 			atomic_set(&prtd->drain, 1);
 			prtd->drain_ready = 0;
 			spin_unlock_irqrestore(&prtd->lock, flags);
 			pr_debug("%s: wait till all the data is sent to dsp\n",
 				__func__);
+
 			/*
 			 * FIXME: Bug.
 			 * Write(32767)
@@ -849,31 +698,30 @@ static int msm_compr_trigger(struct snd_compr_stream *cstream, int cmd)
 			 * sol1 : if (prtd->copied_total) then wait?
 			 * sol2 : prtd->cmd_interrupt || prtd->drain_ready || atomic_read(xrun)
 			 */
-
-                       rc = wait_event_interruptible(prtd->drain_wait,
-                                                     prtd->cmd_interrupt || prtd->drain_ready ||
-                                                     atomic_read(&prtd->xrun));
+			rc = wait_event_interruptible(prtd->drain_wait,
+						      prtd->cmd_interrupt || prtd->drain_ready ||
+						      atomic_read(&prtd->xrun));
 
 			spin_lock_irqsave(&prtd->lock, flags);
-                        if (!prtd->cmd_interrupt) {
-                                bytes_to_write = prtd->bytes_received - prtd->copied_total;
-                                WARN(bytes_to_write > runtime->fragment_size,
-                                     "last write %d cannot be > than fragment_size",
-                                     bytes_to_write);
+			if (!prtd->cmd_interrupt) {
+				bytes_to_write = prtd->bytes_received - prtd->copied_total;
+				WARN(bytes_to_write > runtime->fragment_size,
+				     "last write %d cannot be > than fragment_size",
+				     bytes_to_write);
 
-                                if (bytes_to_write > 0) {
-                                        pr_debug("%s: send %d partial bytes at the end",
-                                               __func__, bytes_to_write);
-                                        atomic_set(&prtd->xrun, 0);
-                                        msm_compr_send_buffer(prtd);
-                                }
+				if (bytes_to_write > 0) {
+					pr_debug("%s: send %d partial bytes at the end",
+					       __func__, bytes_to_write);
+					atomic_set(&prtd->xrun, 0);
+					msm_compr_send_buffer(prtd);
+				}
 			}
 		}
 
-                if (!atomic_read(&prtd->start) || prtd->cmd_interrupt) {
-                        pr_debug("%s: stream is not started (interrupted by flush?)\n", __func__);
-                        rc = -EINTR;
-                        prtd->cmd_interrupt = 0;
+		if (!atomic_read(&prtd->start) || prtd->cmd_interrupt) {
+			pr_debug("%s: stream is not started (interrupted by flush?)\n", __func__);
+			rc = -EINTR;
+			prtd->cmd_interrupt = 0;
 			spin_unlock_irqrestore(&prtd->lock, flags);
 			break;
 		}
@@ -886,10 +734,10 @@ static int msm_compr_trigger(struct snd_compr_stream *cstream, int cmd)
 		spin_unlock_irqrestore(&prtd->lock, flags);
 
 /*
-                if (cmd == SND_COMPR_TRIGGER_PARTIAL_DRAIN) {
-                        pr_err("PARTIAL DRAIN, do not wait for EOS ack");
-                        break;
-                }
+		if (cmd == SND_COMPR_TRIGGER_PARTIAL_DRAIN) {
+			pr_err("PARTIAL DRAIN, do not wait for EOS ack");
+			break;
+		}
 */
 
 		/* Wait indefinitely for  DRAIN. Flush can also signal this*/
@@ -919,13 +767,13 @@ static int msm_compr_trigger(struct snd_compr_stream *cstream, int cmd)
 			spin_lock_irqsave(&prtd->lock, flags);
 			prtd->byte_offset = 0;
 			prtd->app_pointer  = 0;
-                       /* Don't reset these as these vars map
-                          to total_bytes_transferred and total_bytes_available directly,
-                          only total_bytes_transferred will be updated in the next avail()
-                          ioctl
-                          prtd->copied_total = 0;
-                          prtd->bytes_received = 0;
-                       */
+			/* Don't reset these as these vars map
+			   to total_bytes_transferred and total_bytes_available directly,
+			   only total_bytes_transferred will be updated in the next avail()
+			   ioctl
+			   prtd->copied_total = 0;
+			   prtd->bytes_received = 0;
+			*/
 			atomic_set(&prtd->drain, 0);
 			atomic_set(&prtd->xrun, 1);
 			pr_debug("%s: issue CMD_RESUME", __func__);
@@ -933,6 +781,7 @@ static int msm_compr_trigger(struct snd_compr_stream *cstream, int cmd)
 			spin_unlock_irqrestore(&prtd->lock, flags);
 		}
 		pr_debug("%s: out of drain", __func__);
+
 		prtd->cmd_interrupt = 0;
 		break;
 	case SND_COMPR_TRIGGER_NEXT_TRACK:
@@ -960,15 +809,6 @@ static int msm_compr_pointer(struct snd_compr_stream *cstream,
 	tstamp.sampling_rate = prtd->sample_rate;
 	tstamp.byte_offset = prtd->byte_offset;
 	tstamp.copied_total = prtd->copied_total;
-
-	if (atomic_read(&prtd->error)) {
-		pr_err("%s Got RESET EVENTS notification, return error", __func__);
-		tstamp.pcm_io_frames = 0;
-		memcpy(arg, &tstamp, sizeof(struct snd_compr_tstamp));
-		spin_unlock_irqrestore(&prtd->lock, flags);
-		return -EINVAL;
-	}
-
 	spin_unlock_irqrestore(&prtd->lock, flags);
 
 	/*
@@ -1057,14 +897,6 @@ static int msm_compr_copy(struct snd_compr_stream *cstream,
 		return 0;
 	}
 
-	spin_lock_irqsave(&prtd->lock, flags);
-	if (atomic_read(&prtd->error)) {
-		pr_err("%s Got RESET EVENTS notification", __func__);
-		spin_unlock_irqrestore(&prtd->lock, flags);
-		return -EINVAL;
-	}
-	spin_unlock_irqrestore(&prtd->lock, flags);
-
 	dstn = prtd->buffer + prtd->app_pointer;
 	if (count < prtd->buffer_size - prtd->app_pointer) {
 		if (copy_from_user(dstn, buf, count))
@@ -1124,11 +956,7 @@ static int msm_compr_get_codec_caps(struct snd_compr_stream *cstream,
 
 	switch (codec->codec) {
 	case SND_AUDIOCODEC_MP3:
-#ifdef CONFIG_HIFI_SOUND
-		codec->num_descriptors = 5;
-#else
-		codec->num_descriptors = 4;
-#endif
+		codec->num_descriptors = 2;
 		codec->descriptor[0].max_ch = 2;
 		codec->descriptor[0].sample_rates = SNDRV_PCM_RATE_8000_48000;
 		codec->descriptor[0].bit_rate[0] = 320; /* 320kbps */
@@ -1139,11 +967,7 @@ static int msm_compr_get_codec_caps(struct snd_compr_stream *cstream,
 		codec->descriptor[0].formats = 0;
 		break;
 	case SND_AUDIOCODEC_AAC:
-#ifdef CONFIG_HIFI_SOUND
-		codec->num_descriptors = 5;
-#else
-		codec->num_descriptors = 4;
-#endif
+		codec->num_descriptors = 2;
 		codec->descriptor[1].max_ch = 2;
 		codec->descriptor[1].sample_rates = SNDRV_PCM_RATE_8000_48000;
 		codec->descriptor[1].bit_rate[0] = 320; /* 320kbps */
@@ -1155,22 +979,6 @@ static int msm_compr_get_codec_caps(struct snd_compr_stream *cstream,
 			(SND_AUDIOSTREAMFORMAT_MP4ADTS |
 				SND_AUDIOSTREAMFORMAT_RAW);
 		break;
-	case SND_AUDIOCODEC_AC3:
-		break;
-	case SND_AUDIOCODEC_EAC3:
-		break;
-#ifdef CONFIG_HIFI_SOUND
-	case SND_AUDIOCODEC_PCM:
-		codec->num_descriptors = 5;
-		codec->descriptor[4].max_ch = 2;
-		codec->descriptor[4].sample_rates = SNDRV_PCM_RATE_8000_192000;
-		codec->descriptor[4].bit_rate[0] = 192; /* 192kbps */
-		codec->descriptor[4].bit_rate[1] = 8;
-		codec->descriptor[4].num_bitrates = 2;
-		codec->descriptor[4].profiles = 0;
-		codec->descriptor[4].modes = 0;
-		codec->descriptor[4].formats =0;
-#endif
 	default:
 		pr_err("%s: Unsupported audio codec %d\n",
 			__func__, codec->codec);
@@ -1198,925 +1006,50 @@ static int msm_compr_set_metadata(struct snd_compr_stream *cstream,
 }
 
 static int msm_compr_volume_put(struct snd_kcontrol *kcontrol,
-				struct snd_ctl_elem_value *ucontrol)
+				 struct snd_ctl_elem_value *ucontrol)
 {
 	struct snd_soc_platform *platform = snd_kcontrol_chip(kcontrol);
-	unsigned long fe_id = kcontrol->private_value;
+	struct soc_mixer_control *mc =
+		(struct soc_mixer_control *)kcontrol->private_value;
 	struct msm_compr_pdata *pdata = (struct msm_compr_pdata *)
 			snd_soc_platform_get_drvdata(platform);
-	struct snd_compr_stream *cstream = NULL;
-	uint32_t *volume = NULL;
-
-	if (fe_id >= MSM_FRONTEND_DAI_MAX) {
-		pr_err("%s Received out of bounds fe_id %lu\n",
-			__func__, fe_id);
-		return -EINVAL;
-	}
-
-	cstream = pdata->cstream[fe_id];
-	volume = pdata->volume[fe_id];
+	struct snd_compr_stream *cstream = pdata->cstream[mc->reg];
+	uint32_t *volume = pdata->volume[mc->reg];
 
 	volume[0] = ucontrol->value.integer.value[0];
 	volume[1] = ucontrol->value.integer.value[1];
-	pr_debug("%s: fe_id %lu left_vol %d right_vol %d\n",
-		 __func__, fe_id, volume[0], volume[1]);
+	pr_debug("%s: mc->reg %d left_vol %d right_vol %d\n",
+		__func__, mc->reg, volume[0], volume[1]);
 	if (cstream)
 		msm_compr_set_volume(cstream, volume[0], volume[1]);
 	return 0;
 }
 
 static int msm_compr_volume_get(struct snd_kcontrol *kcontrol,
-				struct snd_ctl_elem_value *ucontrol)
+				 struct snd_ctl_elem_value *ucontrol)
 {
 	struct snd_soc_platform *platform = snd_kcontrol_chip(kcontrol);
-	unsigned long fe_id = kcontrol->private_value;
-
+	struct soc_mixer_control *mc =
+		(struct soc_mixer_control *)kcontrol->private_value;
 	struct msm_compr_pdata *pdata =
 		snd_soc_platform_get_drvdata(platform);
-	uint32_t *volume = NULL;
-
-	if (fe_id >= MSM_FRONTEND_DAI_MAX) {
-		pr_err("%s Received out of bound fe_id %lu\n", __func__, fe_id);
-		return -EINVAL;
-	}
-
-	volume = pdata->volume[fe_id];
-	pr_debug("%s: fe_id %lu\n", __func__, fe_id);
+	uint32_t *volume = pdata->volume[mc->reg];
+	pr_debug("%s: mc->reg %d\n", __func__, mc->reg);
 	ucontrol->value.integer.value[0] = volume[0];
 	ucontrol->value.integer.value[1] = volume[1];
 
 	return 0;
 }
 
-#ifdef CONFIG_SND_LGE_EFFECT
-static int lge_dsp_sound_effect_enable_put(struct snd_kcontrol *kcontrol,
-				 struct snd_ctl_elem_value *ucontrol)
-{
-	struct snd_soc_platform *platform = snd_kcontrol_chip(kcontrol);
-	struct soc_mixer_control *mc =
-		(struct soc_mixer_control *)kcontrol->private_value;
-	struct msm_compr_pdata *pdata = (struct msm_compr_pdata *)
-			snd_soc_platform_get_drvdata(platform);
-	struct snd_compr_stream *cstream = pdata->cstream[mc->reg];
-	struct msm_compr_audio *prtd = NULL;
-	int rc;
-
-	if (!cstream || cstream->runtime == NULL) {
-		pr_err("%s: compress stream is not open status, so ignore this cmd\n", __func__);
-		return -EINVAL;
-	}
-	else {
-		prtd = cstream->runtime->private_data;
-	}
-
-	pr_info("+++++++++++++++++++++++++++++++++++++\n");
-	pr_info("%s: value %d\n", __func__, (int)ucontrol->value.integer.value[0]);
-	pr_info("+++++++++++++++++++++++++++++++++++++\n");
-	if (prtd && prtd->audio_client) {
-		rc = q6asm_set_lgesoundeffect_enable(prtd->audio_client, (int)ucontrol->value.integer.value[0]);
-		if (rc < 0) {
-			pr_err("%s: apr command failed rc=%d\n",
-						__func__, rc);
-		}
-	}
-
-	return 0;
-}
-
-static int lge_dsp_sound_effect_enable_get(struct snd_kcontrol *kcontrol,
-				 struct snd_ctl_elem_value *ucontrol)
-{
-	ucontrol->value.integer.value[0] = lgesoundeffect_enable;
-	return 0;
-}
-
-static int lge_dsp_sound_effect_modetype_put(struct snd_kcontrol *kcontrol,
-				 struct snd_ctl_elem_value *ucontrol)
-{
-	struct snd_soc_platform *platform = snd_kcontrol_chip(kcontrol);
-	struct soc_mixer_control *mc =
-		(struct soc_mixer_control *)kcontrol->private_value;
-	struct msm_compr_pdata *pdata = (struct msm_compr_pdata *)
-			snd_soc_platform_get_drvdata(platform);
-	struct snd_compr_stream *cstream = pdata->cstream[mc->reg];
-	struct msm_compr_audio *prtd = NULL;
-	int rc;
-
-	if (!cstream || cstream->runtime == NULL) {
-		pr_err("%s: compress stream is not open status, so ignore this cmd\n", __func__);
-		return -EINVAL;
-	}
-	else {
-		prtd = cstream->runtime->private_data;
-	}
-
-	pr_info("+++++++++++++++++++++++++++++++++++++\n");
-	pr_info("%s: value %d\n", __func__, (int)ucontrol->value.integer.value[0]);
-	pr_info("+++++++++++++++++++++++++++++++++++++\n");
-	if (prtd && prtd->audio_client) {
-		rc = q6asm_set_lgesoundeffect_modetype(prtd->audio_client, (int)ucontrol->value.integer.value[0]);
-		if (rc < 0) {
-			pr_err("%s: apr command failed rc=%d\n",
-						__func__, rc);
-		}
-	}
-
-	return 0;
-}
-
-static int lge_dsp_sound_effect_modetype_get(struct snd_kcontrol *kcontrol,
-				 struct snd_ctl_elem_value *ucontrol)
-{
-	ucontrol->value.integer.value[0] = lgesoundeffect_modetype;
-	return 0;
-}
-
-static int lge_dsp_sound_effect_outputdevicetype_put(struct snd_kcontrol *kcontrol,
-				 struct snd_ctl_elem_value *ucontrol)
-{
-	struct snd_soc_platform *platform = snd_kcontrol_chip(kcontrol);
-	struct soc_mixer_control *mc =
-		(struct soc_mixer_control *)kcontrol->private_value;
-	struct msm_compr_pdata *pdata = (struct msm_compr_pdata *)
-			snd_soc_platform_get_drvdata(platform);
-	struct snd_compr_stream *cstream = pdata->cstream[mc->reg];
-	struct msm_compr_audio *prtd = NULL;
-	int rc;
-
-	if (!cstream || cstream->runtime == NULL) {
-		pr_err("%s: compress stream is not open status, so ignore this cmd\n", __func__);
-		return -EINVAL;
-	}
-	else {
-		prtd = cstream->runtime->private_data;
-	}
-
-	pr_info("+++++++++++++++++++++++++++++++++++++\n");
-	pr_info("%s: value %d\n", __func__, (int)ucontrol->value.integer.value[0]);
-	pr_info("+++++++++++++++++++++++++++++++++++++\n");
-	if (prtd && prtd->audio_client) {
-		rc = q6asm_set_lgesoundeffect_outputdevicetype(prtd->audio_client, (int)ucontrol->value.integer.value[0]);
-		if (rc < 0) {
-			pr_err("%s: apr command failed rc=%d\n",
-						__func__, rc);
-		}
-	}
-
-	return 0;
-}
-
-static int lge_dsp_sound_effect_outputdevicetype_get(struct snd_kcontrol *kcontrol,
-				 struct snd_ctl_elem_value *ucontrol)
-{
-	ucontrol->value.integer.value[0] = lgesoundeffect_outputdevicetype;
-	return 0;
-}
-
-static int lge_dsp_sound_effect_mediatype_put(struct snd_kcontrol *kcontrol,
-				 struct snd_ctl_elem_value *ucontrol)
-{
-	struct snd_soc_platform *platform = snd_kcontrol_chip(kcontrol);
-	struct soc_mixer_control *mc =
-		(struct soc_mixer_control *)kcontrol->private_value;
-	struct msm_compr_pdata *pdata = (struct msm_compr_pdata *)
-			snd_soc_platform_get_drvdata(platform);
-	struct snd_compr_stream *cstream = pdata->cstream[mc->reg];
-	struct msm_compr_audio *prtd = NULL;
-	int rc;
-
-	if (!cstream || cstream->runtime == NULL) {
-		pr_err("%s: compress stream is not open status, so ignore this cmd\n", __func__);
-		return -EINVAL;
-	}
-	else {
-		prtd = cstream->runtime->private_data;
-	}
-
-	pr_info("+++++++++++++++++++++++++++++++++++++\n");
-	pr_info("%s: value %d\n", __func__, (int)ucontrol->value.integer.value[0]);
-	pr_info("+++++++++++++++++++++++++++++++++++++\n");
-	if (prtd && prtd->audio_client) {
-		rc = q6asm_set_lgesoundeffect_mediatype(prtd->audio_client, (int)ucontrol->value.integer.value[0]);
-		if (rc < 0) {
-			pr_err("%s: apr command failed rc=%d\n",
-						__func__, rc);
-		}
-	}
-
-	return 0;
-}
-
-static int lge_dsp_sound_effect_mediatype_get(struct snd_kcontrol *kcontrol,
-				 struct snd_ctl_elem_value *ucontrol)
-{
-	ucontrol->value.integer.value[0] = lgesoundeffect_mediatype;
-	return 0;
-}
-
-static int lge_dsp_sound_effect_geq_put(struct snd_kcontrol *kcontrol,
-				 struct snd_ctl_elem_value *ucontrol)
-{
-	struct snd_soc_platform *platform = snd_kcontrol_chip(kcontrol);
-	struct soc_mixer_control *mc =
-		(struct soc_mixer_control *)kcontrol->private_value;
-	struct msm_compr_pdata *pdata = (struct msm_compr_pdata *)
-			snd_soc_platform_get_drvdata(platform);
-	struct snd_compr_stream *cstream = pdata->cstream[mc->reg];
-	struct msm_compr_audio *prtd = NULL;
-	int rc;
-
-	if (!cstream || cstream->runtime == NULL) {
-		pr_err("%s: compress stream is not open status, so ignore this cmd\n", __func__);
-		return -EINVAL;
-	}
-	else {
-		prtd = cstream->runtime->private_data;
-	}
-
-	pr_info("+++++++++++++++++++++++++++++++++++++\n");
-	pr_info("%s: bandnum %d, bandgain:%d\n", __func__, (int)ucontrol->value.integer.value[0], (int)ucontrol->value.integer.value[1]);
-	pr_info("+++++++++++++++++++++++++++++++++++++\n");
-	if (prtd && prtd->audio_client) {
-		rc = q6asm_set_lgesoundeffect_geq(prtd->audio_client, (int)ucontrol->value.integer.value[0], (int)ucontrol->value.integer.value[1]);
-		if (rc < 0) {
-			pr_err("%s: apr command failed rc=%d\n",
-						__func__, rc);
-		}
-	}
-
-	return 0;
-}
-
-static int lge_dsp_sound_effect_geq_get(struct snd_kcontrol *kcontrol,
-				 struct snd_ctl_elem_value *ucontrol)
-{
-	ucontrol->value.integer.value[0] = lgesoundeffect_geq_band;
-	ucontrol->value.integer.value[1] = lgesoundeffect_geq_gain;
-	return 0;
-}
-#endif
-#ifdef CONFIG_SND_LGE_NORMALIZER
-static int lge_dsp_sound_normalizer_enable_put(struct snd_kcontrol *kcontrol,
-				 struct snd_ctl_elem_value *ucontrol)
-{
-	struct snd_soc_platform *platform = snd_kcontrol_chip(kcontrol);
-	struct soc_mixer_control *mc =
-		(struct soc_mixer_control *)kcontrol->private_value;
-	struct msm_compr_pdata *pdata = (struct msm_compr_pdata *)
-			snd_soc_platform_get_drvdata(platform);
-	struct snd_compr_stream *cstream = pdata->cstream[mc->reg];
-	struct msm_compr_audio *prtd = NULL;
-	int rc;
-
-	if (!cstream || cstream->runtime == NULL) {
-		pr_err("%s: compress stream is not open status, so ignore this cmd\n", __func__);
-		return -EINVAL;
-	}
-	else {
-		prtd = cstream->runtime->private_data;
-	}
-
-	pr_info("+++++++++++++++++++++++++++++++++++++\n");
-	pr_info("%s: value %d\n", __func__, (int)ucontrol->value.integer.value[0]);
-	pr_info("+++++++++++++++++++++++++++++++++++++\n");
-	if (prtd && prtd->audio_client) {
-		rc = q6asm_set_lgesoundnormalizer_enable(prtd->audio_client, (int)ucontrol->value.integer.value[0]);
-		if (rc < 0) {
-			pr_err("%s: apr command failed rc=%d\n",
-						__func__, rc);
-		}
-	}
-
-	return 0;
-}
-
-static int lge_dsp_sound_normalizer_enable_get(struct snd_kcontrol *kcontrol,
-				 struct snd_ctl_elem_value *ucontrol)
-{
-	ucontrol->value.integer.value[0] = lgesoundnormalizer_enable;
-	return 0;
-}
-
-static int lge_dsp_sound_normalizer_devicespeaker_put(struct snd_kcontrol *kcontrol,
-				 struct snd_ctl_elem_value *ucontrol)
-{
-	struct snd_soc_platform *platform = snd_kcontrol_chip(kcontrol);
-	struct soc_mixer_control *mc =
-		(struct soc_mixer_control *)kcontrol->private_value;
-	struct msm_compr_pdata *pdata = (struct msm_compr_pdata *)
-			snd_soc_platform_get_drvdata(platform);
-	struct snd_compr_stream *cstream = pdata->cstream[mc->reg];
-	struct msm_compr_audio *prtd = NULL;
-	int rc;
-
-	if (!cstream || cstream->runtime == NULL) {
-		pr_err("%s: compress stream is not open status, so ignore this cmd\n", __func__);
-		return -EINVAL;
-	}
-	else {
-		prtd = cstream->runtime->private_data;
-	}
-
-	pr_info("+++++++++++++++++++++++++++++++++++++\n");
-	pr_info("%s: value %d\n", __func__, (int)ucontrol->value.integer.value[0]);
-	pr_info("+++++++++++++++++++++++++++++++++++++\n");
-	if (prtd && prtd->audio_client) {
-		rc = q6asm_set_lgesoundnormalizer_devicespeaker(prtd->audio_client, (int)ucontrol->value.integer.value[0]);
-		if (rc < 0) {
-			pr_err("%s: apr command failed rc=%d\n",
-						__func__, rc);
-		}
-	}
-
-	return 0;
-}
-
-static int lge_dsp_sound_normalizer_devicespeaker_get(struct snd_kcontrol *kcontrol,
-				 struct snd_ctl_elem_value *ucontrol)
-{
-	ucontrol->value.integer.value[0] = lgesoundnormalizer_devicespeaker;
-	return 0;
-}
-
-static int lge_dsp_sound_normalizer_makeupgain_put(struct snd_kcontrol *kcontrol,
-				 struct snd_ctl_elem_value *ucontrol)
-{
-	struct snd_soc_platform *platform = snd_kcontrol_chip(kcontrol);
-	struct soc_mixer_control *mc =
-		(struct soc_mixer_control *)kcontrol->private_value;
-	struct msm_compr_pdata *pdata = (struct msm_compr_pdata *)
-			snd_soc_platform_get_drvdata(platform);
-	struct snd_compr_stream *cstream = pdata->cstream[mc->reg];
-	struct msm_compr_audio *prtd = NULL;
-	int rc;
-
-	if (!cstream || cstream->runtime == NULL) {
-		pr_err("%s: compress stream is not open status, so ignore this cmd\n", __func__);
-		return -EINVAL;
-	}
-	else {
-		prtd = cstream->runtime->private_data;
-	}
-
-	pr_info("+++++++++++++++++++++++++++++++++++++\n");
-	pr_info("%s: value %d\n", __func__, (int)ucontrol->value.integer.value[0]);
-	pr_info("+++++++++++++++++++++++++++++++++++++\n");
-	if (prtd && prtd->audio_client) {
-		rc = q6asm_set_lgesoundnormalizer_makeupgain(prtd->audio_client, (int)ucontrol->value.integer.value[0]);
-		if (rc < 0) {
-			pr_err("%s: apr command failed rc=%d\n",
-						__func__, rc);
-		}
-	}
-
-	return 0;
-}
-
-static int lge_dsp_sound_normalizer_makeupgain_get(struct snd_kcontrol *kcontrol,
-				 struct snd_ctl_elem_value *ucontrol)
-{
-	ucontrol->value.integer.value[0] = lgesoundnormalizer_makeupgain;
-	return 0;
-}
-
-static int lge_dsp_sound_normalizer_prefilter_put(struct snd_kcontrol *kcontrol,
-				 struct snd_ctl_elem_value *ucontrol)
-{
-	struct snd_soc_platform *platform = snd_kcontrol_chip(kcontrol);
-	struct soc_mixer_control *mc =
-		(struct soc_mixer_control *)kcontrol->private_value;
-	struct msm_compr_pdata *pdata = (struct msm_compr_pdata *)
-			snd_soc_platform_get_drvdata(platform);
-	struct snd_compr_stream *cstream = pdata->cstream[mc->reg];
-	struct msm_compr_audio *prtd = NULL;
-	int rc;
-
-	if (!cstream || cstream->runtime == NULL) {
-		pr_err("%s: compress stream is not open status, so ignore this cmd\n", __func__);
-		return -EINVAL;
-	}
-	else {
-		prtd = cstream->runtime->private_data;
-	}
-
-	pr_info("+++++++++++++++++++++++++++++++++++++\n");
-	pr_info("%s: value %d\n", __func__, (int)ucontrol->value.integer.value[0]);
-	pr_info("+++++++++++++++++++++++++++++++++++++\n");
-	if (prtd && prtd->audio_client) {
-		rc = q6asm_set_lgesoundnormalizer_prefilter(prtd->audio_client, (int)ucontrol->value.integer.value[0]);
-		if (rc < 0) {
-			pr_err("%s: apr command failed rc=%d\n",
-						__func__, rc);
-		}
-	}
-
-	return 0;
-}
-
-static int lge_dsp_sound_normalizer_prefilter_get(struct snd_kcontrol *kcontrol,
-				 struct snd_ctl_elem_value *ucontrol)
-{
-	ucontrol->value.integer.value[0] = lgesoundnormalizer_prefilter;
-	return 0;
-}
-
-static int lge_dsp_sound_normalizer_limiterthreshold_put(struct snd_kcontrol *kcontrol,
-				 struct snd_ctl_elem_value *ucontrol)
-{
-	struct snd_soc_platform *platform = snd_kcontrol_chip(kcontrol);
-	struct soc_mixer_control *mc =
-		(struct soc_mixer_control *)kcontrol->private_value;
-	struct msm_compr_pdata *pdata = (struct msm_compr_pdata *)
-			snd_soc_platform_get_drvdata(platform);
-	struct snd_compr_stream *cstream = pdata->cstream[mc->reg];
-	struct msm_compr_audio *prtd = NULL;
-	int rc;
-
-	if (!cstream || cstream->runtime == NULL) {
-		pr_err("%s: compress stream is not open status, so ignore this cmd\n", __func__);
-		return -EINVAL;
-	}
-	else {
-		prtd = cstream->runtime->private_data;
-	}
-
-	pr_info("+++++++++++++++++++++++++++++++++++++\n");
-	pr_info("%s: value %d\n", __func__, (int)ucontrol->value.integer.value[0]);
-	pr_info("+++++++++++++++++++++++++++++++++++++\n");
-	if (prtd && prtd->audio_client) {
-		rc = q6asm_set_lgesoundnormalizer_limiterthreshold(prtd->audio_client, (int)ucontrol->value.integer.value[0]);
-		if (rc < 0) {
-			pr_err("%s: apr command failed rc=%d\n",
-						__func__, rc);
-		}
-	}
-
-	return 0;
-}
-
-static int lge_dsp_sound_normalizer_limiterthreshold_get(struct snd_kcontrol *kcontrol,
-				 struct snd_ctl_elem_value *ucontrol)
-{
-	ucontrol->value.integer.value[0] = lgesoundnormalizer_limiterthreshold;
-	return 0;
-}
-
-static int lge_dsp_sound_normalizer_limiterslope_put(struct snd_kcontrol *kcontrol,
-				 struct snd_ctl_elem_value *ucontrol)
-{
-	struct snd_soc_platform *platform = snd_kcontrol_chip(kcontrol);
-	struct soc_mixer_control *mc =
-		(struct soc_mixer_control *)kcontrol->private_value;
-	struct msm_compr_pdata *pdata = (struct msm_compr_pdata *)
-			snd_soc_platform_get_drvdata(platform);
-	struct snd_compr_stream *cstream = pdata->cstream[mc->reg];
-	struct msm_compr_audio *prtd = NULL;
-	int rc;
-
-	if (!cstream || cstream->runtime == NULL) {
-		pr_err("%s: compress stream is not open status, so ignore this cmd\n", __func__);
-		return -EINVAL;
-	}
-	else {
-		prtd = cstream->runtime->private_data;
-	}
-
-	pr_info("+++++++++++++++++++++++++++++++++++++\n");
-	pr_info("%s: value %d\n", __func__, (int)ucontrol->value.integer.value[0]);
-	pr_info("+++++++++++++++++++++++++++++++++++++\n");
-	if (prtd && prtd->audio_client) {
-		rc = q6asm_set_lgesoundnormalizer_limiterslope(prtd->audio_client, (int)ucontrol->value.integer.value[0]);
-		if (rc < 0) {
-			pr_err("%s: apr command failed rc=%d\n",
-						__func__, rc);
-		}
-	}
-
-	return 0;
-}
-
-static int lge_dsp_sound_normalizer_limiterslope_get(struct snd_kcontrol *kcontrol,
-				 struct snd_ctl_elem_value *ucontrol)
-{
-	ucontrol->value.integer.value[0] = lgesoundnormalizer_limiterslope;
-	return 0;
-}
-
-static int lge_dsp_sound_normalizer_compressorthreshold_put(struct snd_kcontrol *kcontrol,
-				 struct snd_ctl_elem_value *ucontrol)
-{
-	struct snd_soc_platform *platform = snd_kcontrol_chip(kcontrol);
-	struct soc_mixer_control *mc =
-		(struct soc_mixer_control *)kcontrol->private_value;
-	struct msm_compr_pdata *pdata = (struct msm_compr_pdata *)
-			snd_soc_platform_get_drvdata(platform);
-	struct snd_compr_stream *cstream = pdata->cstream[mc->reg];
-	struct msm_compr_audio *prtd = NULL;
-	int rc;
-
-	if (!cstream || cstream->runtime == NULL) {
-		pr_err("%s: compress stream is not open status, so ignore this cmd\n", __func__);
-		return -EINVAL;
-	}
-	else {
-		prtd = cstream->runtime->private_data;
-	}
-
-	pr_info("+++++++++++++++++++++++++++++++++++++\n");
-	pr_info("%s: value %d\n", __func__, (int)ucontrol->value.integer.value[0]);
-	pr_info("+++++++++++++++++++++++++++++++++++++\n");
-	if (prtd && prtd->audio_client) {
-		rc = q6asm_set_lgesoundnormalizer_compressorthreshold(prtd->audio_client, (int)ucontrol->value.integer.value[0]);
-		if (rc < 0) {
-			pr_err("%s: apr command failed rc=%d\n",
-						__func__, rc);
-		}
-	}
-
-	return 0;
-}
-
-static int lge_dsp_sound_normalizer_compressorthreshold_get(struct snd_kcontrol *kcontrol,
-				 struct snd_ctl_elem_value *ucontrol)
-{
-	ucontrol->value.integer.value[0] = lgesoundnormalizer_compressorthreshold;
-	return 0;
-}
-
-static int lge_dsp_sound_normalizer_compressorslope_put(struct snd_kcontrol *kcontrol,
-				 struct snd_ctl_elem_value *ucontrol)
-{
-	struct snd_soc_platform *platform = snd_kcontrol_chip(kcontrol);
-	struct soc_mixer_control *mc =
-		(struct soc_mixer_control *)kcontrol->private_value;
-	struct msm_compr_pdata *pdata = (struct msm_compr_pdata *)
-			snd_soc_platform_get_drvdata(platform);
-	struct snd_compr_stream *cstream = pdata->cstream[mc->reg];
-	struct msm_compr_audio *prtd = NULL;
-	int rc;
-
-	if (!cstream || cstream->runtime == NULL) {
-		pr_err("%s: compress stream is not open status, so ignore this cmd\n", __func__);
-		return -EINVAL;
-	}
-	else {
-		prtd = cstream->runtime->private_data;
-	}
-
-	pr_info("+++++++++++++++++++++++++++++++++++++\n");
-	pr_info("%s: value %d\n", __func__, (int)ucontrol->value.integer.value[0]);
-	pr_info("+++++++++++++++++++++++++++++++++++++\n");
-	if (prtd && prtd->audio_client) {
-		rc = q6asm_set_lgesoundnormalizer_compressorslope(prtd->audio_client, (int)ucontrol->value.integer.value[0]);
-		if (rc < 0) {
-			pr_err("%s: apr command failed rc=%d\n",
-						__func__, rc);
-		}
-	}
-
-	return 0;
-}
-
-static int lge_dsp_sound_normalizer_compressorslope_get(struct snd_kcontrol *kcontrol,
-				 struct snd_ctl_elem_value *ucontrol)
-{
-	ucontrol->value.integer.value[0] = lgesoundnormalizer_compressorslope;
-	return 0;
-}
-
-static int lge_dsp_sound_normalizer_onoff_put(struct snd_kcontrol *kcontrol,
-				 struct snd_ctl_elem_value *ucontrol)
-{
-	struct snd_soc_platform *platform = snd_kcontrol_chip(kcontrol);
-	struct soc_mixer_control *mc =
-		(struct soc_mixer_control *)kcontrol->private_value;
-	struct msm_compr_pdata *pdata = (struct msm_compr_pdata *)
-			snd_soc_platform_get_drvdata(platform);
-	struct snd_compr_stream *cstream = pdata->cstream[mc->reg];
-	struct msm_compr_audio *prtd = NULL;
-	int rc;
-
-	if (!cstream || cstream->runtime == NULL) {
-		pr_err("%s: compress stream is not open status, so ignore this cmd\n", __func__);
-		return -EINVAL;
-	}
-	else {
-		prtd = cstream->runtime->private_data;
-	}
-
-	pr_info("+++++++++++++++++++++++++++++++++++++\n");
-	pr_info("%s: value %d\n", __func__, (int)ucontrol->value.integer.value[0]);
-	pr_info("+++++++++++++++++++++++++++++++++++++\n");
-	if (prtd && prtd->audio_client) {
-		rc = q6asm_set_lgesoundnormalizer_onoff(prtd->audio_client, (int)ucontrol->value.integer.value[0]);
-		if (rc < 0) {
-			pr_err("%s: apr command failed rc=%d\n",
-						__func__, rc);
-		}
-	}
-
-	return 0;
-}
-
-static int lge_dsp_sound_normalizer_onoff_get(struct snd_kcontrol *kcontrol,
-				 struct snd_ctl_elem_value *ucontrol)
-{
-	ucontrol->value.integer.value[0] = lgesoundnormalizer_onoff;
-	return 0;
-}
-#endif
-
-#ifdef CONFIG_SND_LGE_MABL
-static int lge_dsp_sound_mabl_devicespeaker_put(struct snd_kcontrol *kcontrol,
-				 struct snd_ctl_elem_value *ucontrol)
-{
-	struct snd_soc_platform *platform = snd_kcontrol_chip(kcontrol);
-	struct soc_mixer_control *mc =
-		(struct soc_mixer_control *)kcontrol->private_value;
-	struct msm_compr_pdata *pdata = (struct msm_compr_pdata *)
-			snd_soc_platform_get_drvdata(platform);
-	struct snd_compr_stream *cstream = pdata->cstream[mc->reg];
-	struct msm_compr_audio *prtd = NULL;
-	int rc;
-
-	if (!cstream || cstream->runtime == NULL) {
-		pr_err("%s: compress stream is not open status, so ignore this cmd\n", __func__);
-		return -EINVAL;
-	}
-	else {
-		prtd = cstream->runtime->private_data;
-	}
-
-	pr_info("+++++++++++++++++++++++++++++++++++++\n");
-	pr_info("%s: value %d\n", __func__, (int)ucontrol->value.integer.value[0]);
-	pr_info("+++++++++++++++++++++++++++++++++++++\n");
-	if (prtd && prtd->audio_client) {
-		rc = q6asm_set_lgesoundmabl_devicespeaker(prtd->audio_client, (int)ucontrol->value.integer.value[0]);
-		if (rc < 0) {
-			pr_err("%s: apr command failed rc=%d\n",
-						__func__, rc);
-		}
-	}
-
-	return 0;
-}
-
-static int lge_dsp_sound_mabl_devicespeaker_get(struct snd_kcontrol *kcontrol,
-				 struct snd_ctl_elem_value *ucontrol)
-{
-	ucontrol->value.integer.value[0] = lgesoundmabl_devicespeaker;
-	return 0;
-}
-
-static int lge_dsp_sound_mabl_monoenable_put(struct snd_kcontrol *kcontrol,
-				 struct snd_ctl_elem_value *ucontrol)
-{
-	struct snd_soc_platform *platform = snd_kcontrol_chip(kcontrol);
-	struct soc_mixer_control *mc =
-		(struct soc_mixer_control *)kcontrol->private_value;
-	struct msm_compr_pdata *pdata = (struct msm_compr_pdata *)
-			snd_soc_platform_get_drvdata(platform);
-	struct snd_compr_stream *cstream = pdata->cstream[mc->reg];
-	struct msm_compr_audio *prtd = NULL;
-	int rc;
-
-	if (!cstream || cstream->runtime == NULL) {
-		pr_err("%s: compress stream is not open status, so ignore this cmd\n", __func__);
-		return -EINVAL;
-	}
-	else {
-		prtd = cstream->runtime->private_data;
-	}
-
-	pr_info("+++++++++++++++++++++++++++++++++++++\n");
-	pr_info("%s: value %d\n", __func__, (int)ucontrol->value.integer.value[0]);
-	pr_info("+++++++++++++++++++++++++++++++++++++\n");
-	if (prtd && prtd->audio_client) {
-		rc = q6asm_set_lgesoundmabl_monoenable(prtd->audio_client, (int)ucontrol->value.integer.value[0]);
-		if (rc < 0) {
-			pr_err("%s: apr command failed rc=%d\n",
-						__func__, rc);
-		}
-	}
-
-	return 0;
-}
-
-static int lge_dsp_sound_mabl_monoenable_get(struct snd_kcontrol *kcontrol,
-				 struct snd_ctl_elem_value *ucontrol)
-{
-	ucontrol->value.integer.value[0] = lgesoundmabl_monoenable;
-	return 0;
-}
-
-static int lge_dsp_sound_mabl_lrbalancecontrol_put(struct snd_kcontrol *kcontrol,
-				 struct snd_ctl_elem_value *ucontrol)
-{
-	struct snd_soc_platform *platform = snd_kcontrol_chip(kcontrol);
-	struct soc_mixer_control *mc =
-		(struct soc_mixer_control *)kcontrol->private_value;
-	struct msm_compr_pdata *pdata = (struct msm_compr_pdata *)
-			snd_soc_platform_get_drvdata(platform);
-	struct snd_compr_stream *cstream = pdata->cstream[mc->reg];
-	struct msm_compr_audio *prtd = NULL;
-	int rc;
-
-	if (!cstream || cstream->runtime == NULL) {
-		pr_err("%s: compress stream is not open status, so ignore this cmd\n", __func__);
-		return -EINVAL;
-	}
-	else {
-		prtd = cstream->runtime->private_data;
-	}
-
-	pr_info("+++++++++++++++++++++++++++++++++++++\n");
-	pr_info("%s: value %d\n", __func__, (int)ucontrol->value.integer.value[0]);
-	pr_info("+++++++++++++++++++++++++++++++++++++\n");
-	if (prtd && prtd->audio_client) {
-		rc = q6asm_set_lgesoundmabl_lrbalancecontrol(prtd->audio_client, (int)ucontrol->value.integer.value[0]);
-		if (rc < 0) {
-			pr_err("%s: apr command failed rc=%d\n",
-						__func__, rc);
-		}
-	}
-
-	return 0;
-}
-
-static int lge_dsp_sound_mabl_lrbalancecontrol_get(struct snd_kcontrol *kcontrol,
-				 struct snd_ctl_elem_value *ucontrol)
-{
-	ucontrol->value.integer.value[0] = lgesoundmabl_lrbalancecontrol;
-	return 0;
-}
-#endif
-
-
 /* System Pin has no volume control */
-static const struct snd_kcontrol_new msm_compr_lge_effect_controls[] = {
-
-#ifdef CONFIG_SND_LGE_EFFECT
-	SOC_SINGLE_EXT("Offload Effect Enable",
+static const struct snd_kcontrol_new msm_compr_volume_controls[] = {
+	SOC_DOUBLE_EXT_TLV("Compress Playback Volume",
 			MSM_FRONTEND_DAI_MULTIMEDIA4,
-			0, 1, 0,
-			lge_dsp_sound_effect_enable_get,
-			lge_dsp_sound_effect_enable_put),
-	SOC_SINGLE_EXT("Offload Effect Modetype",
-			MSM_FRONTEND_DAI_MULTIMEDIA4,
-			0, 8, 0,
-			lge_dsp_sound_effect_modetype_get,
-			lge_dsp_sound_effect_modetype_put),
-	SOC_SINGLE_EXT("Offload Effect Outputdevicetype",
-			MSM_FRONTEND_DAI_MULTIMEDIA4,
-			0, 5, 0,
-			lge_dsp_sound_effect_outputdevicetype_get,
-			lge_dsp_sound_effect_outputdevicetype_put),
-	SOC_SINGLE_EXT("Offload Effect Mediatype",
-			MSM_FRONTEND_DAI_MULTIMEDIA4,
-			0, 2, 0,
-			lge_dsp_sound_effect_mediatype_get,
-			lge_dsp_sound_effect_mediatype_put),
-	SOC_DOUBLE_EXT("Offload Effect EQ",
-			MSM_FRONTEND_DAI_MULTIMEDIA4,
-			0, 8, 25, 0,
-			lge_dsp_sound_effect_geq_get,
-			lge_dsp_sound_effect_geq_put),
-#endif
-#ifdef CONFIG_SND_LGE_NORMALIZER
-	SOC_SINGLE_EXT("Offload Normalizer Enable",
-			MSM_FRONTEND_DAI_MULTIMEDIA4,
-			0, 1, 0,
-			lge_dsp_sound_normalizer_enable_get,
-			lge_dsp_sound_normalizer_enable_put),
-	SOC_SINGLE_EXT("Offload Normalizer Devicespeaker",
-			MSM_FRONTEND_DAI_MULTIMEDIA4,
-			0, 1, 0,
-			lge_dsp_sound_normalizer_devicespeaker_get,
-			lge_dsp_sound_normalizer_devicespeaker_put),
-	SOC_SINGLE_EXT("Offload Normalizer Makeupgain",
-			MSM_FRONTEND_DAI_MULTIMEDIA4,
-			0, 30000, 0,
-			lge_dsp_sound_normalizer_makeupgain_get,
-			lge_dsp_sound_normalizer_makeupgain_put),
-	SOC_SINGLE_EXT("Offload Normalizer Prefilter",
-			MSM_FRONTEND_DAI_MULTIMEDIA4,
-			0, 1, 0,
-			lge_dsp_sound_normalizer_prefilter_get,
-			lge_dsp_sound_normalizer_prefilter_put),
-	SOC_SINGLE_EXT("Offload Normalizer Limiterthreshold",
-			MSM_FRONTEND_DAI_MULTIMEDIA4,
-			0, 32767, 0,
-			lge_dsp_sound_normalizer_limiterthreshold_get,
-			lge_dsp_sound_normalizer_limiterthreshold_put),
-	SOC_SINGLE_EXT("Offload Normalizer Limiterslope",
-			MSM_FRONTEND_DAI_MULTIMEDIA4,
-			0, 1000, 0,
-			lge_dsp_sound_normalizer_limiterslope_get,
-			lge_dsp_sound_normalizer_limiterslope_put),
-	SOC_SINGLE_EXT("Offload Normalizer Compressorthreshold",
-			MSM_FRONTEND_DAI_MULTIMEDIA4,
-			0, 32767, 0,
-			lge_dsp_sound_normalizer_compressorthreshold_get,
-			lge_dsp_sound_normalizer_compressorthreshold_put),
-	SOC_SINGLE_EXT("Offload Normalizer Compressorslope",
-			MSM_FRONTEND_DAI_MULTIMEDIA4,
-			0, 1000, 0,
-			lge_dsp_sound_normalizer_compressorslope_get,
-			lge_dsp_sound_normalizer_compressorslope_put),
-	SOC_SINGLE_EXT("Offload Normalizer Onoff",
-			MSM_FRONTEND_DAI_MULTIMEDIA4,
-			0, 1, 0,
-			lge_dsp_sound_normalizer_onoff_get,
-			lge_dsp_sound_normalizer_onoff_put),
-#endif
-#ifdef CONFIG_SND_LGE_MABL
-	SOC_SINGLE_EXT("Offload MABL devicespeaker",
-			MSM_FRONTEND_DAI_MULTIMEDIA4,
-			0, 1, 0,
-			lge_dsp_sound_mabl_devicespeaker_get,
-			lge_dsp_sound_mabl_devicespeaker_put),
-	SOC_SINGLE_EXT("Offload MABL monoenable",
-			MSM_FRONTEND_DAI_MULTIMEDIA4,
-			0, 1, 0,
-			lge_dsp_sound_mabl_monoenable_get,
-			lge_dsp_sound_mabl_monoenable_put),
-	SOC_SINGLE_EXT("Offload MABL lrbalancecontrol",
-			MSM_FRONTEND_DAI_MULTIMEDIA4,
-			0, 62, 0,
-			lge_dsp_sound_mabl_lrbalancecontrol_get,
-			lge_dsp_sound_mabl_lrbalancecontrol_put),
-#endif
+			0, 8, COMPRESSED_LR_VOL_MAX_STEPS, 0,
+			msm_compr_volume_get,
+			msm_compr_volume_put,
+			msm_compr_vol_gain),
 };
-
-static int msm_compr_audio_effects_config_put(struct snd_kcontrol *kcontrol,
-					   struct snd_ctl_elem_value *ucontrol)
-{
-	struct snd_soc_platform *platform = snd_kcontrol_chip(kcontrol);
-	unsigned long fe_id = kcontrol->private_value;
-	struct msm_compr_pdata *pdata = (struct msm_compr_pdata *)
-			snd_soc_platform_get_drvdata(platform);
-	struct msm_compr_audio_effects *audio_effects = NULL;
-	struct snd_compr_stream *cstream = NULL;
-	struct msm_compr_audio *prtd = NULL;
-	long *values = &(ucontrol->value.integer.value[0]);
-	int effects_module;
-
-	pr_debug("%s\n", __func__);
-	if (fe_id >= MSM_FRONTEND_DAI_MAX) {
-		pr_err("%s Received out of bounds fe_id %lu\n",
-			__func__, fe_id);
-		return -EINVAL;
-	}
-	cstream = pdata->cstream[fe_id];
-	audio_effects = pdata->audio_effects[fe_id];
-	if (!cstream || !audio_effects) {
-		pr_err("%s: stream or effects inactive\n", __func__);
-		return -EINVAL;
-	}
-	prtd = cstream->runtime->private_data;
-	if (!prtd) {
-		pr_err("%s: cannot set audio effects\n", __func__);
-		return -EINVAL;
-	}
-	effects_module = *values++;
-	switch (effects_module) {
-	case VIRTUALIZER_MODULE:
-		pr_debug("%s: VIRTUALIZER_MODULE\n", __func__);
-		msm_audio_effects_virtualizer_handler(prtd->audio_client,
-						&(audio_effects->virtualizer),
-						values);
-		break;
-	case REVERB_MODULE:
-		pr_debug("%s: REVERB_MODULE\n", __func__);
-		msm_audio_effects_reverb_handler(prtd->audio_client,
-						 &(audio_effects->reverb),
-						 values);
-		break;
-	case BASS_BOOST_MODULE:
-		pr_debug("%s: BASS_BOOST_MODULE\n", __func__);
-		msm_audio_effects_bass_boost_handler(prtd->audio_client,
-						   &(audio_effects->bass_boost),
-						     values);
-		break;
-	case EQ_MODULE:
-		pr_debug("%s: EQ_MODULE\n", __func__);
-		msm_audio_effects_popless_eq_handler(prtd->audio_client,
-						    &(audio_effects->equalizer),
-						     values);
-		break;
-	default:
-		pr_err("%s Invalid effects config module\n", __func__);
-		return -EINVAL;
-	}
-	return 0;
-}
-
-static int msm_compr_audio_effects_config_get(struct snd_kcontrol *kcontrol,
-					   struct snd_ctl_elem_value *ucontrol)
-{
-	/* dummy function */
-	return 0;
-}
 
 static int msm_compr_probe(struct snd_soc_platform *platform)
 {
@@ -2136,138 +1069,9 @@ static int msm_compr_probe(struct snd_soc_platform *platform)
 	for (i = 0; i < MSM_FRONTEND_DAI_MAX; i++) {
 		pdata->volume[i][0] = COMPRESSED_LR_VOL_MAX_STEPS;
 		pdata->volume[i][1] = COMPRESSED_LR_VOL_MAX_STEPS;
-		pdata->audio_effects[i] = NULL;
 		pdata->cstream[i] = NULL;
 	}
 
-	return 0;
-}
-
-static int msm_compr_volume_info(struct snd_kcontrol *kcontrol,
-				 struct snd_ctl_elem_info *uinfo)
-{
-	uinfo->type = SNDRV_CTL_ELEM_TYPE_INTEGER;
-	uinfo->count = 2;
-	uinfo->value.integer.min = 0;
-	uinfo->value.integer.max = COMPRESSED_LR_VOL_MAX_STEPS;
-	return 0;
-}
-
-static int msm_compr_audio_effects_config_info(struct snd_kcontrol *kcontrol,
-					       struct snd_ctl_elem_info *uinfo)
-{
-	uinfo->type = SNDRV_CTL_ELEM_TYPE_INTEGER;
-	uinfo->count = 128;
-	uinfo->value.integer.min = 0;
-	uinfo->value.integer.max = 0xFFFFFFFF;
-	return 0;
-}
-
-static int msm_compr_add_volume_control(struct snd_soc_pcm_runtime *rtd)
-{
-	const char *mixer_ctl_name = "Compress Playback";
-	const char *deviceNo       = "NN";
-	const char *suffix         = "Volume";
-	char *mixer_str = NULL;
-	int ctl_len;
-	struct snd_kcontrol_new fe_volume_control[1] = {
-		{
-		.iface = SNDRV_CTL_ELEM_IFACE_MIXER,
-		.name = "?",
-		.access = SNDRV_CTL_ELEM_ACCESS_TLV_READ |
-			  SNDRV_CTL_ELEM_ACCESS_READWRITE,
-		.info = msm_compr_volume_info,
-		.tlv.p = msm_compr_vol_gain,
-		.get = msm_compr_volume_get,
-		.put = msm_compr_volume_put,
-		.private_value = 0,
-		}
-	};
-
-	if (!rtd) {
-		pr_err("%s NULL rtd\n", __func__);
-		return 0;
-	}
-	pr_debug("%s: added new compr FE with name %s, id %d, cpu dai %s, device no %d\n",
-		 __func__, rtd->dai_link->name, rtd->dai_link->be_id,
-		 rtd->dai_link->cpu_dai_name, rtd->pcm->device);
-	ctl_len = strlen(mixer_ctl_name) + 1 + strlen(deviceNo) + 1 +
-		  strlen(suffix) + 1;
-	mixer_str = kzalloc(ctl_len, GFP_KERNEL);
-	if (!mixer_str) {
-		pr_err("failed to allocate mixer ctrl str of len %d", ctl_len);
-		return 0;
-	}
-	snprintf(mixer_str, ctl_len, "%s %d %s", mixer_ctl_name,
-		 rtd->pcm->device, suffix);
-	fe_volume_control[0].name = mixer_str;
-	fe_volume_control[0].private_value = rtd->dai_link->be_id;
-	pr_debug("Registering new mixer ctl %s", mixer_str);
-	snd_soc_add_platform_controls(rtd->platform, fe_volume_control,
-				      ARRAY_SIZE(fe_volume_control));
-	kfree(mixer_str);
-	return 0;
-}
-
-static int msm_compr_add_audio_effects_control(struct snd_soc_pcm_runtime *rtd)
-{
-	const char *mixer_ctl_name = "Audio Effects Config";
-	const char *deviceNo       = "NN";
-	char *mixer_str = NULL;
-	int ctl_len;
-	struct snd_kcontrol_new fe_audio_effects_config_control[1] = {
-		{
-		.iface = SNDRV_CTL_ELEM_IFACE_MIXER,
-		.name = "?",
-		.access = SNDRV_CTL_ELEM_ACCESS_READWRITE,
-		.info = msm_compr_audio_effects_config_info,
-		.get = msm_compr_audio_effects_config_get,
-		.put = msm_compr_audio_effects_config_put,
-		.private_value = 0,
-		}
-	};
-
-
-	if (!rtd) {
-		pr_err("%s NULL rtd\n", __func__);
-		return 0;
-	}
-
-	pr_debug("%s: added new compr FE with name %s, id %d, cpu dai %s, device no %d\n",
-		 __func__, rtd->dai_link->name, rtd->dai_link->be_id,
-		 rtd->dai_link->cpu_dai_name, rtd->pcm->device);
-
-	ctl_len = strlen(mixer_ctl_name) + 1 + strlen(deviceNo) + 1;
-	mixer_str = kzalloc(ctl_len, GFP_KERNEL);
-
-	if (!mixer_str) {
-		pr_err("failed to allocate mixer ctrl str of len %d", ctl_len);
-		return 0;
-	}
-
-	snprintf(mixer_str, ctl_len, "%s %d", mixer_ctl_name, rtd->pcm->device);
-
-	fe_audio_effects_config_control[0].name = mixer_str;
-	fe_audio_effects_config_control[0].private_value = rtd->dai_link->be_id;
-	pr_debug("Registering new mixer ctl %s", mixer_str);
-	snd_soc_add_platform_controls(rtd->platform,
-				fe_audio_effects_config_control,
-				ARRAY_SIZE(fe_audio_effects_config_control));
-	kfree(mixer_str);
-	return 0;
-}
-
-static int msm_compr_new(struct snd_soc_pcm_runtime *rtd)
-{
-	int rc;
-
-	rc = msm_compr_add_volume_control(rtd);
-	if (rc)
-		pr_err("%s: Could not add Compr Volume Control\n", __func__);
-	rc = msm_compr_add_audio_effects_control(rtd);
-	if (rc)
-		pr_err("%s: Could not add Compr Audio Effects Control\n",
-			__func__);
 	return 0;
 }
 
@@ -2287,11 +1091,8 @@ static struct snd_compr_ops msm_compr_ops = {
 static struct snd_soc_platform_driver msm_soc_platform = {
 	.probe		= msm_compr_probe,
 	.compr_ops	= &msm_compr_ops,
-#if defined(CONFIG_SND_LGE_EFFECT) || defined(CONFIG_SND_LGE_NORMALIZER) || defined(CONFIG_SND_LGE_MABL)
-	.controls = msm_compr_lge_effect_controls,
-	.num_controls = ARRAY_SIZE(msm_compr_lge_effect_controls),
-#endif
-	.pcm_new = msm_compr_new,
+	.controls	= msm_compr_volume_controls,
+	.num_controls	= ARRAY_SIZE(msm_compr_volume_controls),
 };
 
 static __devinit int msm_compr_dev_probe(struct platform_device *pdev)

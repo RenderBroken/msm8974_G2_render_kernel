@@ -53,7 +53,7 @@ snd-soc-wcd9310-objs := wcd9310.o wcd9310-tables.o
 snd-soc-cs8427-objs := cs8427.o
 snd-soc-wcd9320-objs := wcd9xxx-resmgr.o wcd9320.o wcd9320-tables.o wcd9xxx-mbhc.o wcd9xxx-common.o
 snd-soc-wcd9306-objs := wcd9306.o wcd9306-tables.o wcd9xxx-common.o
-snd-soc-msm8x10-wcd-objs := msm8x10-wcd.o msm8x10-wcd-tables.o wcd9xxx-common.o
+snd-soc-msm8x10-wcd-objs := msm8x10-wcd.o msm8x10-wcd-tables.o
 snd-soc-wl1273-objs := wl1273.o
 snd-soc-wm1250-ev1-objs := wm1250-ev1.o
 snd-soc-wm2000-objs := wm2000.o
@@ -165,7 +165,7 @@ obj-$(CONFIG_SND_SOC_WCD9310)	+= snd-soc-wcd9310.o
 obj-$(CONFIG_SND_SOC_CS8427)	+= snd-soc-cs8427.o
 obj-$(CONFIG_SND_SOC_WCD9320)	+= snd-soc-wcd9320.o
 obj-$(CONFIG_SND_SOC_WCD9306)	+= snd-soc-wcd9306.o wcd9xxx-resmgr.o wcd9xxx-mbhc.o
-obj-$(CONFIG_SND_SOC_MSM8X10_WCD)	+= snd-soc-msm8x10-wcd.o wcd9xxx-resmgr.o wcd9xxx-mbhc.o
+obj-$(CONFIG_SND_SOC_MSM8X10_WCD)	+= snd-soc-msm8x10-wcd.o wcd9xxx-resmgr.o
 obj-$(CONFIG_SND_SOC_WL1273)	+= snd-soc-wl1273.o
 obj-$(CONFIG_SND_SOC_WM1250_EV1) += snd-soc-wm1250-ev1.o
 obj-$(CONFIG_SND_SOC_WM2000)	+= snd-soc-wm2000.o
@@ -218,7 +218,3 @@ obj-$(CONFIG_SND_SOC_MSM_STUB)  += snd-soc-msm-stub.o
 # Amp
 obj-$(CONFIG_SND_SOC_MAX9877)	+= snd-soc-max9877.o
 obj-$(CONFIG_SND_SOC_TPA6130A2)	+= snd-soc-tpa6130a2.o
-# LGE_BSP_AUDIO, jeremy.pi@lge.com, 2012-11-17, Audience es325 ALSA SoC Audio driver
-ifeq ($(CONFIG_SND_SOC_ES325_SLIM),y)
-obj-$(CONFIG_SND_SOC_ES325_SLIM) += es325.o
-endif
