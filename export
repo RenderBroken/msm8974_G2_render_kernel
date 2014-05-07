@@ -1,7 +1,6 @@
 #!/bin/bash
 build=/home/savoca/furnace_output/lg
 kernel="furnace"
-rom="aosp"
 toolchain=/home/savoca/toolchains/android-toolchain-eabi/bin/
 toolchain2="arm-eabi-"
 kerneltype="zImage"
@@ -75,9 +74,11 @@ case "$target" in
 	"lg")
 		# Already set
 		rdflag=1
+		rom="lg"
 		break;;
 	"aosp")
 		rdflag=2
+		rom="aosp"
 		ramdisk=ramdisk_aosp
 		break;;
 esac
