@@ -1,7 +1,7 @@
 #!/bin/bash
 build=/home/savoca/furnace_output/lg
 kernel="furnace"
-rom="lg"
+rom="aosp"
 toolchain=/home/savoca/toolchains/android-toolchain-eabi/bin/
 toolchain2="arm-eabi-"
 kerneltype="zImage"
@@ -64,6 +64,21 @@ case "$panel" in
 	"jdi")
 		cmdline="console=ttyHSL0,115200,n8 androidboot.hardware=g2 user_debug=31 msm_rtb.filter=0x0 mdss_mdp.panel=1:dsi:0:qcom,mdss_dsi_g2_jdi_cmd"
 		version="2.1.0-jdi"
+		break;;
+esac
+done
+
+echo "Pick target..."
+select target in lg aosp
+do
+case "$target" in
+	"lg")
+		# Already set
+		rdflag=1
+		break;;
+	"aosp")
+		rdflag=2
+		ramdisk=ramdisk_aosp
 		break;;
 esac
 done
@@ -136,8 +151,11 @@ else
 	esac
 fi
 
-if [ -f $ramdisk ]; then
+if [ $rdflag = 1 ]; then
 	echo "Using prebuilt ramdisk..."
+elif [ $rdflag = 2 ]; then
+	mkbootfs $ramdisk | gzip > out/ramdisk.gz
+	ramdisk=out/ramdisk.gz
 else
 	echo "No ramdisk found..."
 	exit 0;
