@@ -178,14 +178,13 @@
 /data/local/tmp/selinux(/.*)?   u:object_r:tombstone_data_file:s0
 # Misc data
 /data/misc/bluetoothd(/.*)?	u:object_r:bluetoothd_data_file:s0
-/data/misc/audio(/.*)?          u:object_r:audio_data_file:s0
 /data/misc/bluetooth(/.*)?	u:object_r:bluetooth_data_file:s0
 /data/misc/bluedroid(/.*)?	u:object_r:bluetooth_data_file:s0
 /data/misc/keystore(/.*)?	u:object_r:keystore_data_file:s0
 /data/misc/vpn(/.*)?		u:object_r:vpn_data_file:s0
 /data/misc/systemkeys(/.*)?	u:object_r:systemkeys_data_file:s0
 /data/misc/wifi(/.*)?		u:object_r:wifi_data_file:s0
-/data/misc/camera(/.*)?	u:object_r:camera_data_file:s0
+/data/misc/camera(/.*)?	u:object_r:camera_calibration_file:s0
 /data/misc/dhcp(/.*)?           u:object_r:dhcp_data_file:s0
 /data/misc/adb(/.*)?            u:object_r:adb_keys_file:s0
 # App sandboxes
@@ -194,6 +193,8 @@
 /data/data/com.android.settings/files/wallpaper	u:object_r:wallpaper_file:s0
 # Wallpaper file for other users
 /data/system/users/[0-9]+/wallpaper		u:object_r:wallpaper_file:s0
+# Downloaded files
+/data/data/com.android.providers.downloads/cache u:object_r:download_file:s0
 #############################
 # efs files
 #
@@ -213,22 +214,19 @@
 /sys/devices/platform/nfc-power/nfc_power -- u:object_r:sysfs_nfc_power_writable:s0
 /sys/class/rfkill/rfkill[0-9]*/state -- u:object_r:sysfs_bluetooth_writable:s0
 /sys/class/rfkill/rfkill[0-9]*/type -- u:object_r:sysfs_bluetooth_writable:s0
-/sys/devices/system/cpu(/.*)?    u:object_r:sysfs_devices_system_cpu:s0
 #############################
 # asec containers
-/mnt/asec(/.*)?           u:object_r:asec_apk_file:s0
-/mnt/asec/[^/]+/res.zip   u:object_r:asec_public_file:s0
-/mnt/asec/[^/]+/lib(/.*)? u:object_r:asec_public_file:s0
-/data/app-asec(/.*)?      u:object_r:asec_image_file:s0
+/mnt/asec(/.*)?         u:object_r:asec_apk_file:s0
+/data/app-asec(/.*)?    u:object_r:asec_image_file:s0
 #line 1 "device/lge/g2-common/sepolicy/file_contexts"
 # GPU device
 /dev/kgsl-3d0       u:object_r:gpu_device:s0
-#line 1 "vendor/pa/sepolicy/file_contexts"
+#line 1 "vendor/mahdi/sepolicy/file_contexts"
 /cache/dalvik-cache(/.*)? u:object_r:dalvikcache_data_file:s0
 
 #############################
-# performance-related sysfs files (CM)
+# performance-related sysfs files (Mahdi-Rom)
 /sys/kernel/mm/ksm(/.*)?       --          u:object_r:sysfs_writable:s0
-/sys/devices/system/cpu.*/cpufreq(/.*)? --  u:object_r:sysfs_devices_system_cpu:s0
+/sys/devices/system/cpu.*/cpufreq(/.*)? --  u:object_r:sysfs_writable:s0
 /sys/block/mmcblk0/queue/scheduler  --    u:object_r:sysfs_writable:s0
 

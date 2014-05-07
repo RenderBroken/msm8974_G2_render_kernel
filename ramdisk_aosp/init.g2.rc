@@ -1,7 +1,6 @@
 import init.g2.usb.rc
 
 on early-init
-    write /sys/block/mmcblk0/queue/scheduler noop
     mount debugfs debugfs /sys/kernel/debug
     write /sys/class/leds/lcd-backlight/brightness 110
     chown system system /sys/kernel/debug/kgsl/proc
@@ -50,22 +49,6 @@ on fs
     write /sys/kernel/boot_adsp/boot 1
     setprop ro.crypto.fuse_sdcard true
 
-    mkdir /sns 0755 system system
-    mkdir /persist-lg 0755 system system
-    mkdir /mpt 0755 system system
-
-    wait /dev/block/platform/msm_sdcc.1/by-name/sns
-    exec /system/bin/e2fsck -p /dev/block/platform/msm_sdcc.1/by-name/sns
-    mount ext4 /dev/block/platform/msm_sdcc.1/by-name/sns /sns nosuid nodev barrier=1 noatime noauto_da_alloc errors=continue
-
-    wait /dev/block/platform/msm_sdcc.1/by-name/drm
-    exec /system/bin/e2fsck -p /dev/block/platform/msm_sdcc.1/by-name/drm
-    mount ext4 /dev/block/platform/msm_sdcc.1/by-name/drm /persist-lg nosuid nodev barrier=1 noatime noauto_da_alloc errors=continue
-
-    wait /dev/block/platform/msm_sdcc.1/by-name/mpt
-    exec /system/bin/e2fsck -p /dev/block/platform/msm_sdcc.1/by-name/mpt
-    mount ext4 /dev/block/platform/msm_sdcc.1/by-name/mpt /mpt nodev nosuid barrier=1 noatime noauto_da_alloc errors=continue
-
 on early-boot
     # set RLIMIT_MEMLOCK to 64MB
     setrlimit 8 67108864 67108864
@@ -96,14 +79,21 @@ on boot
     # create symlink for fb1 as HDMI
     symlink /dev/graphics/fb1 /dev/graphics/hdmi
 
-    # Remove write permissions to video related nodes
+    # setup permissions for fb1 related nodes
+    chown system graphics /sys/class/graphics/fb1/hpd
+    chown system graphics /sys/class/graphics/fb1/vendor_name
+    chown system graphics /sys/class/graphics/fb1/product_description
     chmod 0664 /sys/devices/virtual/graphics/fb1/hpd
-    chmod 0664 /sys/devices/virtual/graphics/fb1/video_mode
-    chmod 0664 /sys/devices/virtual/graphics/fb1/format_3d
+    chmod 0664 /sys/devices/virtual/graphics/fb1/vendor_name
+    chmod 0664 /sys/devices/virtual/graphics/fb1/product_description
 
     # Change owner and group for media server and surface flinger
     chown system system /sys/devices/virtual/graphics/fb1/format_3d
     chown system system /sys/devices/virtual/graphics/fb1/hpd
+
+    # fb2 permissions
+    chown system graphics /sys/class/graphics/fb2/ad
+    chmod 0664 /sys/devices/virtual/graphics/fb2/ad
 
     #For bridgemgr daemon to inform the USB driver of the correct transport
     chown radio radio /sys/class/android_usb/f_rmnet_smd_sdio/transport
@@ -138,13 +128,6 @@ on boot
     write /proc/sys/net/ipv6/conf/rmnet_usb2/accept_ra 2
     write /proc/sys/net/ipv6/conf/rmnet_usb3/accept_ra 2
 
-# Subsytem Restart
-    #adsp
-    write /sys/bus/msm_subsys/devices/subsys0/restart_level "related"
-    #modem
-    write /sys/bus/msm_subsys/devices/subsys1/restart_level "related"
-    #venus
-    write /sys/bus/msm_subsys/devices/subsys2/restart_level "related"
 
 # NFC: create data/nfc for nv storage
     mkdir /data/nfc 770 nfc nfc
@@ -191,9 +174,6 @@ on boot
 on post-fs-data
     mkdir /data/media 0770 media_rw media_rw
 
-    chown system system /mpt
-    chmod 0775 /mpt
-
     # bluetooth
     mkdir /data/misc/bluetooth 0770 bluetooth bluetooth
 
@@ -207,10 +187,6 @@ on post-fs-data
     mkdir /data/misc/dhcp 0770 dhcp dhcp
 # to observe dnsmasq.leases file for dhcp information of soft ap.
     chown dhcp system /data/misc/dhcp
-
-    # Create the directory used by CnE subsystem
-    mkdir /data/connectivity 0771 system system
-    chown system system /data/connectivity
 
     # Create directory used by audio subsystem
     mkdir /data/misc/audio 0770 audio audio
@@ -233,41 +209,9 @@ on post-fs-data
     chown system system /sys/devices/platform/msm_sdcc.3/polling
     chown system system /sys/devices/platform/msm_sdcc.4/polling
 
-    chmod 0660 /dev/ramdump_adsp
-    chown system system /dev/ramdump_adsp
-
-    chmod 0660 /dev/ramdump_audio-ocmem
-    chown system system /dev/ramdump_audio-ocmem
-
-    chmod 0660 /dev/ramdump_modem
-    chown system system /dev/ramdump_modem
-
-    chmod 0660 /dev/ramdump_smem-modem
-    chown system system /dev/ramdump_smem-modem
-
-    chmod 0660 /dev/ramdump_smem-smd
-    chown system system /dev/ramdump_smem-smd
-
-    chmod 0660 /dev/ramdump_venus
-    chown system system /dev/ramdump_venus
-
     #Create the symlink to qcn wpa_supplicant folder for ar6000 wpa_supplicant
     mkdir /data/system 0775 system system
     #symlink /data/misc/wifi/wpa_supplicant /data/system/wpa_supplicant
-
-    #Create directory used by sensor subsystem(dsps)
-    mkdir /data/system 0755 system system
-    mkdir /data/system/sensors
-    chmod 665 /data/system/sensors
-    write /data/system/sensors/settings 1
-    chmod 660 /data/system/sensors/settings
-
-    # AKM setting data
-    mkdir /data/misc/sensors
-    chmod 775 /data/misc/sensors
-
-    mkdir /persist/sensors
-    chmod 775 /persist/sensors
 
     #Provide the access to hostapd.conf only to root and group
     chmod 0660 /data/hostapd/hostapd.conf
@@ -278,28 +222,10 @@ on post-fs-data
 
     setprop vold.post_fs_data_done 1
 
-    #Set default sdcard fs type
-    setprop vold.sdcard_fs_type none
-
     rm /data/local/tmp/adreno_config.txt
-
-    #Create directories for QuIPS
-    mkdir /data/misc/quipc 0770 system gps
-
-    #Create directories for Location services
-    mkdir /data/misc/location 0770 gps gps
-    mkdir /data/misc/location/mq 0770 gps gps
-    mkdir /data/misc/location/xtwifi 0770 gps gps
-
-    #Create directory from IMS services
-    mkdir /data/shared 0755
-    chown system system /data/shared
 
     # time_daemon storage
     mkdir /data/time/ 0700 system system
-
-    #Create a folder for SRS to be able to create a usercfg file
-    mkdir /data/data/media 0770 media media
 
     # Enable Power modes and set the CPU Freq Sampling rates
     write /sys/module/lpm_levels/enable_low_power/l2 4
@@ -319,11 +245,6 @@ on post-fs-data
     write /sys/devices/system/cpu/cpu2/online 1
     write /sys/devices/system/cpu/cpu3/online 1
 
-#   write /sys/class/devfreq/qcom,cpubw.30/governor "cpubw_hwmon"
-    write /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor "ondemand"
-    write /sys/devices/system/cpu/cpu1/cpufreq/scaling_governor "ondemand"
-    write /sys/devices/system/cpu/cpu2/cpufreq/scaling_governor "ondemand"
-    write /sys/devices/system/cpu/cpu3/cpufreq/scaling_governor "ondemand"
     write /sys/devices/system/cpu/cpufreq/ondemand/sampling_rate 50000
     write /sys/devices/system/cpu/cpufreq/ondemand/up_threshold 90
     write /sys/devices/system/cpu/cpufreq/ondemand/io_is_busy 1
@@ -347,15 +268,16 @@ on post-fs-data
     write /sys/module/msm_thermal/core_control/enabled 1
     chown root system /sys/devices/system/cpu/mfreq
     chmod 0220 /sys/devices/system/cpu/mfreq
-    chown system system /sys/devices/system/cpu/cpu1/online
-    chown system system /sys/devices/system/cpu/cpu2/online
-    chown system system /sys/devices/system/cpu/cpu3/online
+    chown root.system /sys/devices/system/cpu/cpu1/online
+    chown root.system /sys/devices/system/cpu/cpu2/online
+    chown root.system /sys/devices/system/cpu/cpu3/online
     chmod 664 /sys/devices/system/cpu/cpu1/online
     chmod 664 /sys/devices/system/cpu/cpu2/online
     chmod 664 /sys/devices/system/cpu/cpu3/online
     write /dev/cpuctl/apps/cpu.notify_on_migrate 1
 
     chown system system /sys/devices/virtual/input/lge_touch/touch_gesture
+    write /sys/devices/virtual/input/lge_touch/touch_gesture 1
     chown root system /sys/devices/platform/tspdrv/nforce_timed
     chown root system /sys/devices/platform/kcal_ctrl.0/kcal
     chown root system /sys/devices/platform/kcal_ctrl.0/kcal_ctrl
@@ -411,6 +333,11 @@ service sensors /system/bin/sensors.qcom
     class main
     user root
     group root
+
+service qcom-sensor-sh /system/bin/sh /sensors.sh
+    class main
+    user root
+    oneshot
 
 service dhcpcd_wlan0 /system/bin/dhcpcd -aABDKL
     class main
@@ -471,11 +398,6 @@ service cnd /system/bin/cnd
     class late_start
     socket cnd stream 660 root inet
 
-service thermal-engine /system/bin/thermal-engine
-   class main
-   user root
-   group root
-
 service irsc_util /system/bin/irsc_util "/etc/sec_config"
     class main
     user root
@@ -527,58 +449,7 @@ service time_daemon /system/bin/time_daemon
     user root
     group root
 
-service quipc_igsn /system/bin/quipc_igsn
-    class late_start
-    user gps
-    group inet gps
-    disabled
-
-service quipc_main /system/bin/quipc_main
-    class late_start
-    user gps
-    group gps net_admin wifi inet
-    disabled
-
-service location_mq /system/bin/location-mq
-    class late_start
-    user gps
-    group gps
-    disabled
-
-service xtwifi_inet /system/bin/xtwifi-inet-agent
-    class late_start
-    user gps
-    group inet gps
-    disabled
-
-service xtwifi_client /system/bin/xtwifi-client
-    class late_start
-    user gps
-    group net_admin wifi inet gps
-    disabled
-
-service lowi-server /system/bin/lowi-server
-    class late_start
-    user gps
-    group gps net_admin wifi inet
-    disabled
-
 service fuse_usb /system/bin/sdcard -u 1023 -g 1023 /mnt/media_rw/usb /storage/usb
     class late_start
     disabled
 
-service qrngd /system/bin/qrngd -f
-    class main
-    user root
-    group root
-
-service qrngp /system/bin/qrngp
-    class main
-    user root
-    group root
-    oneshot
-    disabled
-
-on property:sys.boot_completed=1
-    write /sys/block/mmcblk0/queue/scheduler row
-    start qrngp
