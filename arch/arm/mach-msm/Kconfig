@@ -285,7 +285,6 @@ config ARCH_MSM8974
 	select ARCH_WANT_KMAP_ATOMIC_FLUSH
 	select KRAIT_REGULATOR
 	select ENABLE_VMALLOC_SAVINGS
-	select HAS_MACH_MEMUTILS
 
 config ARCH_APQ8084
 	bool "APQ8084"
@@ -3132,11 +3131,5 @@ config AOSP
 	help
 	 Fixes functions on AOSP or CM. Kernels for stock LG rom's 
          are functional if this is not enabled.
-
-config HAS_MACH_MEMUTILS
-	default n
-	bool "Motorola MSM memcpy enhancements"
-	help
-	Faster memcpy performance for Krait
 
 endif
