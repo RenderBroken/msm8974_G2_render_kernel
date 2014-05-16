@@ -2143,8 +2143,8 @@ void mmc_detect_change(struct mmc_host *host, unsigned long delay)
 	host->detect_change = 1;
 #ifdef CONFIG_MACH_LGE
 /*
-                                           
-                                                                           
+
+
  */
 	wake_lock(&host->detect_wake_lock);
 #endif
@@ -3280,11 +3280,11 @@ void mmc_rescan(struct work_struct *work)
 	mmc_rpm_release(host, &host->class_dev);
  out:
 	if (extend_wakelock)
-		wake_lock_timeout(&host->detect_wake_lock, HZ / 2);
+		wake_lock_timeout(&host->detect_wake_lock, HZ / 4);
 #ifdef CONFIG_MACH_LGE
 /*
-                                           
-                                                                           
+
+
  */
 	else
 		wake_unlock(&host->detect_wake_lock);
