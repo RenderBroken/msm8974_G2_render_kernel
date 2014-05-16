@@ -1092,9 +1092,9 @@ int mmc_interrupt_hpi(struct mmc_card *card)
 
 out:
 #ifdef CONFIG_MACH_LGE
-	/*           
-                 
-                            
+	/*
+
+
  */
 	if (err)
 		pr_err("%s: mmc_interrupt_hpi() failed. err: (%d)\n",	mmc_hostname(card->host), err);
@@ -1283,11 +1283,11 @@ void mmc_set_data_timeout(struct mmc_data *data, const struct mmc_card *card)
 			limit_us = 3000000;
 		else
 			#ifdef CONFIG_MACH_LGE
-			/*           
-                                              
-                                                                         
-                                        
-                               
+			/*
+
+
+
+
     */
 			limit_us = 300000;
 			#else
@@ -1918,9 +1918,9 @@ void mmc_power_up(struct mmc_host *host)
 	 * to reach the minimum voltage.
 	 */
 	#ifdef CONFIG_MACH_LGE
-	/*           
-                                              
-                            
+	/*
+
+
  */
 	mmc_delay(20);
 	#else
@@ -1937,9 +1937,9 @@ void mmc_power_up(struct mmc_host *host)
 	 * time required to reach a stable voltage.
 	 */
 #ifdef CONFIG_MACH_LGE
-	/*           
-                                              
-                            
+	/*
+
+
  */
 	mmc_delay(20);
 #else
@@ -1952,8 +1952,8 @@ void mmc_power_up(struct mmc_host *host)
 void mmc_power_off(struct mmc_host *host)
 {
 	#ifdef CONFIG_MACH_LGE
-		/*                                      
-                                           
+		/*
+
   */
 		if (host->ios.power_mode == MMC_POWER_OFF) {
 			printk(KERN_INFO "[LGE][MMC][%-18s( )] host->index:%d, already power-off, skip below\n", __func__, host->index);
@@ -2135,8 +2135,8 @@ void mmc_detect_change(struct mmc_host *host, unsigned long delay)
 	host->detect_change = 1;
 #ifdef CONFIG_MACH_LGE
 /*
-                                           
-                                                                           
+
+
  */
 	wake_lock(&host->detect_wake_lock);
 #endif
@@ -3208,9 +3208,9 @@ void mmc_rescan(struct work_struct *work)
 	bool extend_wakelock = false;
 
 #ifdef CONFIG_MACH_LGE
-	/*           
-               
-                                 
+	/*
+
+
  */
 	printk(KERN_INFO "[LGE][MMC][%-18s( ) START!] %d\n", __func__, host->index);
 #endif
@@ -3272,11 +3272,11 @@ void mmc_rescan(struct work_struct *work)
 	mmc_rpm_release(host, &host->class_dev);
  out:
 	if (extend_wakelock)
-		wake_lock_timeout(&host->detect_wake_lock, HZ / 2);
+		wake_lock_timeout(&host->detect_wake_lock, HZ / 4);
 #ifdef CONFIG_MACH_LGE
 /*
-                                           
-                                                                           
+
+
  */
 	else
 		wake_unlock(&host->detect_wake_lock);
