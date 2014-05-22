@@ -74,6 +74,7 @@ static struct ion_secure_cma_buffer_info *__ion_secure_cma_allocate(
 	struct ion_secure_cma_buffer_info *info;
 	DEFINE_DMA_ATTRS(attrs);
 	dma_set_attr(DMA_ATTR_NO_KERNEL_MAPPING, &attrs);
+	dma_set_attr(DMA_ATTR_SKIP_ZEROING, &attrs);
 
 	dev_dbg(dev, "Request buffer allocation len %ld\n", len);
 
