@@ -1824,7 +1824,7 @@ out:
 
 static int clamp_soc_based_on_voltage(struct qpnp_bms_chip *chip, int soc)
 {
-	int rc, vbat_uv;
+	int rc, vbat_uv = 0;
 
 	rc = get_battery_voltage(&vbat_uv);
 	if (rc < 0) {
@@ -1991,7 +1991,7 @@ done_calculating:
 static int calculate_soc_from_voltage(struct qpnp_bms_chip *chip)
 {
 	int voltage_range_uv, voltage_remaining_uv, voltage_based_soc;
-	int rc, vbat_uv;
+	int rc, vbat_uv = 0;
 
 	rc = get_battery_voltage(&vbat_uv);
 	if (rc < 0) {
@@ -2368,7 +2368,7 @@ static int get_prop_bms_batt_resistance(struct qpnp_bms_chip *chip)
 /* Returns instantaneous current in uA */
 static int get_prop_bms_current_now(struct qpnp_bms_chip *chip)
 {
-	int rc, result_ua;
+	int rc, result_ua = 0;
 
 	rc = get_battery_current(chip, &result_ua);
 	if (rc) {
@@ -2381,7 +2381,7 @@ static int get_prop_bms_current_now(struct qpnp_bms_chip *chip)
 /* Returns coulomb counter in uAh */
 static int get_prop_bms_charge_counter(struct qpnp_bms_chip *chip)
 {
-	int64_t cc_raw;
+	int64_t cc_raw = 0;
 
 	mutex_lock(&chip->bms_output_lock);
 	lock_output_data(chip);
