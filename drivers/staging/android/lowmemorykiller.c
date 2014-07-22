@@ -30,6 +30,8 @@
  *
  */
 
+#define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
+
 #define REALLY_WANT_TRACEPOINTS
 #include <linux/module.h>
 #include <linux/kernel.h>
@@ -41,8 +43,8 @@
 #include <linux/mutex.h>
 #include <linux/delay.h>
 #include <linux/swap.h>
-#include <linux/fs.h>
 #include <linux/powersuspend.h>
+#include <linux/fs.h>
 
 #include <trace/events/memkill.h>
 
@@ -54,6 +56,15 @@
 
 static uint32_t lowmem_debug_level = 1;
 static uint32_t lowmem_auto_oom = 1;
+static short lowmem_adj[6] = {
+	0,
+	1,
+	6,
+	12,
+	13,
+	15,
+};
+static int lowmem_adj_size = 6;
 static int lowmem_minfree[6] = {
 	3 * 512,	/* 6MB */
 	2 * 1024,	/* 8MB */
@@ -86,12 +97,13 @@ static unsigned long lowmem_deathpending_timeout;
 #define lowmem_print(level, x...)			\
 	do {						\
 		if (lowmem_debug_level >= (level))	\
-			printk(x);			\
+			pr_info(x);			\
 	} while (0)
 
 static bool avoid_to_kill(uid_t uid)
 {
-	/* uid info
+	/*
+	 * uid info
 	 * uid == 0 > root
 	 * uid == 1001 > radio
 	 * uid == 1002 > bluetooth
@@ -109,7 +121,8 @@ static bool protected_apps(char *comm)
 {
 	if (strcmp(comm, "d.process.acore") == 0 ||
 			strcmp(comm, "ndroid.systemui") == 0 ||
-			strcmp(comm, "ndroid.contacts") == 0) {
+			strcmp(comm, "ndroid.contacts") == 0 ||
+			strcmp(comm, "system:ui") == 0) {
 		return 1;
 	}
 	return 0;
@@ -162,6 +175,7 @@ struct zone_avail {
 	unsigned long free;
 	unsigned long file;
 };
+
 
 void tune_lmk_zone_param(struct zonelist *zonelist, int classzone_idx,
 					int *other_free, int *other_file,
@@ -222,35 +236,6 @@ void tune_lmk_zone_param(struct zonelist *zonelist, int classzone_idx,
 	}
 }
 
-#ifdef CONFIG_HIGHMEM
-void adjust_gfp_mask(gfp_t *gfp_mask)
-{
-	struct zone *preferred_zone;
-	struct zonelist *zonelist;
-	enum zone_type high_zoneidx;
-
-	if (current_is_kswapd()) {
-		zonelist = node_zonelist(0, *gfp_mask);
-		high_zoneidx = gfp_zone(*gfp_mask);
-		first_zones_zonelist(zonelist, high_zoneidx, NULL,
-				&preferred_zone);
-
-		if (high_zoneidx == ZONE_NORMAL) {
-			if (zone_watermark_ok_safe(preferred_zone, 0,
-					high_wmark_pages(preferred_zone), 0,
-					0))
-				*gfp_mask |= __GFP_HIGHMEM;
-		} else if (high_zoneidx == ZONE_HIGHMEM) {
-			*gfp_mask |= __GFP_HIGHMEM;
-		}
-	}
-}
-#else
-void adjust_gfp_mask(gfp_t *unused)
-{
-}
-#endif
-
 void tune_lmk_param(int *other_free, int *other_file, struct shrink_control *sc,
 				struct zone_avail zall[][MAX_NR_ZONES])
 {
@@ -263,8 +248,6 @@ void tune_lmk_param(int *other_free, int *other_file, struct shrink_control *sc,
 	struct zone_avail *za;
 
 	gfp_mask = sc->gfp_mask;
-	adjust_gfp_mask(&gfp_mask);
-
 	zonelist = node_zonelist(0, gfp_mask);
 	high_zoneidx = gfp_zone(gfp_mask);
 	first_zones_zonelist(zonelist, high_zoneidx, NULL, &preferred_zone);
@@ -334,7 +317,7 @@ static int lowmem_shrink(struct shrinker *s, struct shrink_control *sc)
 {
 	struct task_struct *tsk;
 	struct task_struct *selected = NULL;
-	const struct cred *cred = current_cred(), *pcred;
+	const struct cred *pcred;
 	unsigned int uid = 0;
 	int rem = 0;
 	int tasksize;
@@ -479,16 +462,16 @@ static int lowmem_shrink(struct shrinker *s, struct shrink_control *sc)
 				selected = p;
 				selected_tasksize = tasksize;
 				selected_oom_score_adj = oom_score_adj;
-				lowmem_print(2, "select '%s' (%d), adj %hd, size %dkB, to kill\n",
+				lowmem_print(2, "select '%s' (%d), adj %hd, size %ldkB, to kill\n",
 					p->comm, p->pid, oom_score_adj, tasksize * (long)(PAGE_SIZE / 1024));
 			} else
-				lowmem_print(2, "selected skipped %s' (%d), adj %hd, size %dkB, not kill\n",
+				lowmem_print(2, "selected skipped %s' (%d), adj %hd, size %ldkB, not kill\n",
 					p->comm, p->pid, oom_score_adj, tasksize * (long)(PAGE_SIZE / 1024));
 		} else {
 			selected = p;
 			selected_tasksize = tasksize;
 			selected_oom_score_adj = oom_score_adj;
-			lowmem_print(2, "select %s' (%d), adj %hd, size %dkB, to kill\n",
+			lowmem_print(2, "select %s' (%d), adj %hd, size %ldkB, to kill\n",
 				p->comm, p->pid, oom_score_adj, tasksize * (long)(PAGE_SIZE / 1024));
 		}
 	}
@@ -546,7 +529,7 @@ static struct shrinker lowmem_shrinker = {
 	.seeks = DEFAULT_SEEKS * 16
 };
 
-static void low_mem_early_suspend(struct power_suspend *handler)
+static void low_mem_power_suspend(struct power_suspend *handler)
 {
 	if (lowmem_auto_oom) {
 		memcpy(lowmem_minfree_screen_on, lowmem_minfree, sizeof(lowmem_minfree));
@@ -561,7 +544,7 @@ static void low_mem_late_resume(struct power_suspend *handler)
 }
 
 static struct power_suspend low_mem_suspend = {
-	.suspend = low_mem_early_suspend,
+	.suspend = low_mem_power_suspend,
 	.resume = low_mem_late_resume,
 };
 
@@ -776,11 +759,10 @@ module_param_array_named(minfree, lowmem_minfree, uint, &lowmem_minfree_size,
 module_param_array_named(minfree_screen_off, lowmem_minfree_screen_off, uint, &lowmem_minfree_size,
 			 S_IRUGO | S_IWUSR);
 module_param_named(debug_level, lowmem_debug_level, uint, S_IRUGO | S_IWUSR);
-module_param_named(lmk_fast_run, lmk_fast_run, int, S_IRUGO | S_IWUSR);
 module_param_named(auto_oom, lowmem_auto_oom, uint, S_IRUGO | S_IWUSR);
+module_param_named(lmk_fast_run, lmk_fast_run, int, S_IRUGO | S_IWUSR);
 
 module_init(lowmem_init);
 module_exit(lowmem_exit);
 
 MODULE_LICENSE("GPL");
-
