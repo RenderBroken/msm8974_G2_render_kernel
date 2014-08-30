@@ -19,14 +19,14 @@
 #include <linux/cpufreq.h>
 #include <linux/cpu.h>
 #include <linux/sched.h>
-#include <linux/sched/rt.h>
+#include <linux/sched.h>
 #include <linux/jiffies.h>
 #include <linux/smpboot.h>
 #include <linux/moduleparam.h>
 #include <linux/slab.h>
 #include <linux/input.h>
 #include <linux/time.h>
-#ifdef CONFIG_LCD_NOTIFY
+#ifdef CONFIG_MACH_LGE
 #include <linux/lcd_notify.h>
 #endif
 
@@ -48,7 +48,7 @@ static struct workqueue_struct *cpu_boost_wq;
 
 static struct work_struct input_boost_work;
 
-#ifdef CONFIG_LCD_NOTIFY
+#ifdef CONFIG_MACH_LGE
 static struct notifier_block notif;
 #endif
 
@@ -73,7 +73,7 @@ module_param(load_based_syncs, bool, 0644);
 static bool hotplug_boost = 1;
 module_param(hotplug_boost, bool, 0644);
 
-#ifdef CONFIG_LCD_NOTIFY
+#ifdef CONFIG_MACH_LGE
 bool wakeup_boost;
 module_param(wakeup_boost, bool, 0644);
 #endif
@@ -418,7 +418,7 @@ static struct notifier_block __refdata cpu_nblk = {
         .notifier_call = cpuboost_cpu_callback,
 };
 
-#ifdef CONFIG_LCD_NOTIFY
+#ifdef CONFIG_MACH_LGE
 static int lcd_notifier_callback(struct notifier_block *this,
 				unsigned long event, void *data)
 {
@@ -477,7 +477,7 @@ static int cpu_boost_init(void)
 	if (ret)
 		pr_err("Cannot register cpuboost hotplug handler.\n");
 
-#ifdef CONFIG_LCD_NOTIFY
+#ifdef CONFIG_MACH_LGE
 	notif.notifier_call = lcd_notifier_callback;
 	ret = lcd_register_client(&notif);
         if (ret != 0)
