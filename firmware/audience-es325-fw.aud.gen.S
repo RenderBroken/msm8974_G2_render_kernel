@@ -2,7 +2,7 @@
     .section .rodata
     .p2align 2
 _fw_audience_es325_fw_aud_bin:
-    .incbin "/home/renderbroken/android/source/kernel/msm8974/firmware/audience-es325-fw.aud"
+    .incbin "/home/renderbroken/android/source/kernel/msm8974_G2_render_kernel/firmware/audience-es325-fw.aud"
 _fw_end:
    .section .rodata.str,"aMS",%progbits,1
     .p2align 2
