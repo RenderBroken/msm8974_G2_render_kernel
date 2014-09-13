@@ -23,6 +23,7 @@
 #include <linux/module.h>
 #include <mach/msm_kcal.h>
 #include "../../../drivers/video/msm/mdss/mdss_fb.h"
+#include <linux/input/sweep2dim.h>
 
 static struct kcal_lut_data lut = {
 	.r = 255,
@@ -30,6 +31,11 @@ static struct kcal_lut_data lut = {
 	.b = 255,
 	.min = 35,
 	.stat = 0
+};
+
+static struct kcal_sweep sweep = {
+	.up = 73,
+	.down = 73
 };
 
 static int kcal_set_values(int kcal_r, int kcal_g, int kcal_b)
@@ -75,6 +81,36 @@ static int kcal_get_min(int *kcal_min)
 static int kcal_refresh_values(void)
 {
 	return update_preset_lcdc_lut(lut.r, lut.g, lut.b);
+}
+
+void kcal_send_sweep(int send)
+{
+	if (send == 1) {
+		lut.r = lut.r - sweep.down;
+		lut.g = lut.g - sweep.down;
+		lut.b = lut.b - sweep.down;
+	}
+
+	if (send == 2) {
+		if ((lut.r == 255) && (lut.g == 255) && (lut.b == 255))
+			return;
+
+		lut.r = lut.r + sweep.up;
+		lut.g = lut.g + sweep.up;
+		lut.b = lut.b + sweep.up;
+	}
+
+	lut.r = lut.r < lut.min ? lut.min : lut.r;
+	lut.g = lut.g < lut.min ? lut.min : lut.g;
+	lut.b = lut.b < lut.min ? lut.min : lut.b;
+
+	lut.r = lut.r > 255 ? 255 : lut.r;
+	lut.g = lut.g > 255 ? 255 : lut.g;
+	lut.b = lut.b > 255 ? 255 : lut.b;
+
+	update_preset_lcdc_lut(lut.r, lut.g, lut.b);
+
+	return;
 }
 
 static struct kcal_platform_data kcal_pdata = {
