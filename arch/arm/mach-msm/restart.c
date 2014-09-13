@@ -41,6 +41,9 @@
 #include <mach/lge_handle_panic.h>
 #include <mach/board_lge.h>
 #endif
+#ifdef CONFIG_KEXEC_HARDBOOT
+#include <asm/kexec.h>
+#endif
 
 #define WDT0_RST	0x38
 #define WDT0_EN		0x40
@@ -315,6 +318,26 @@ static int __init msm_pmic_restart_init(void)
 
 late_initcall(msm_pmic_restart_init);
 
+#ifdef CONFIG_KEXEC_HARDBOOT
+static void msm_kexec_hardboot_hook(void)
+{
+	set_dload_mode(0);
+
+	// Set PMIC to restart-on-poweroff
+	pm8xxx_reset_pwr_off(1);
+
+	// These are executed on normal reboot, but with kexec-hardboot,
+	// they reboot/panic the system immediately.
+#if 0
+	qpnp_pon_system_pwr_off(PON_POWER_OFF_WARM_RESET);
+
+	/* Needed to bypass debug image on some chips */
+	msm_disable_wdog_debug();
+	halt_spmi_pmic_arbiter();
+#endif
+}
+#endif
+
 static int __init msm_restart_init(void)
 {
 #ifdef CONFIG_LGE_HANDLE_PANIC
@@ -332,6 +355,10 @@ static int __init msm_restart_init(void)
 	msm_tmr0_base = msm_timer_get_timer0_base();
 	restart_reason = MSM_IMEM_BASE + RESTART_REASON_ADDR;
 	pm_power_off = msm_power_off;
+
+#ifdef CONFIG_KEXEC_HARDBOOT
+	kexec_hardboot_hook = msm_kexec_hardboot_hook;
+#endif
 
 	return 0;
 }
