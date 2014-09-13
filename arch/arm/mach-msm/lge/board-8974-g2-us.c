@@ -30,6 +30,9 @@
 #include <asm/mach/arch.h>
 #include <mach/board.h>
 #include <mach/gpiomux.h>
+#ifdef CONFIG_LCD_KCAL
+#include <mach/msm_kcal.h>
+#endif
 #include <mach/msm_iomap.h>
 #ifdef CONFIG_ION_MSM
 #include <mach/ion.h>
@@ -196,6 +199,9 @@ void __init msm8974_add_drivers(void)
 /*                                                                    */
 #if defined(CONFIG_BCMDHD) || defined(CONFIG_BCMDHD_MODULE)
 	init_bcm_wifi();
+#endif
+#ifdef CONFIG_LCD_KCAL
+	kcal_ctrl_init();
 #endif
 }
 
