@@ -3134,6 +3134,13 @@ config AOSP
 
 endif
 
+config FORCE_FAST_CHARGE
+	bool "Force AC charge mode at will"
+	default n
+	help
+		A simple sysfs interface to force adapters that
+		are detected as USB to charge as AC.
+
 config MSM_HOTPLUG
 	bool "MSM hotplug driver"
 	depends on HOTPLUG_CPU
