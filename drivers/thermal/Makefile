@@ -7,8 +7,8 @@ obj-$(CONFIG_THERMAL_MSM_POPMEM)	+= msm_popmem-tm.o
 obj-$(CONFIG_THERMAL_TSENS)	+= msm_tsens.o
 obj-$(CONFIG_THERMAL_TSENS8960) += msm8960_tsens.o
 obj-$(CONFIG_THERMAL_PM8XXX)	+= pm8xxx-tm.o
-ifdef CONFIG_INTELLI_THERMAL
-obj-$(CONFIG_INTELLI_THERMAL)   += intelli/msm_thermal.o
+ifdef CONFIG_BRICKED_THERMAL
+obj-$(CONFIG_BRICKED_THERMAL)   += msm_thermal_bricked.o
 else
 obj-$(CONFIG_THERMAL_MONITOR)	+= msm_thermal.o
 endif
