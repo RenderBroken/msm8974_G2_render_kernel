@@ -50,6 +50,7 @@
 
 static struct rfkill *bt_rfk;
 static const char bt_name[] = "brcm_Bluetooth_rfkill";
+static bool current_blocked = true;
 
 #if defined(CONFIG_BCM4335BT)
 /* +++BRCM 4335 AXI Patch */
@@ -181,7 +182,13 @@ static void bcm_btlock_exit(void)
 #endif /* defined(CONFIG_BCM4335BT) */
 static int bluetooth_set_power(void *data, bool blocked)
 {
-    
+
+	if (current_blocked == blocked) {
+		pr_debug("[BT] keeping current blocked state %d\n", blocked);
+		return 0;
+	}
+
+	current_blocked = blocked;
 	BTRFKILLDBG("bluetooth_set_power set blocked=%d", blocked);
 	if (!blocked) {
 
