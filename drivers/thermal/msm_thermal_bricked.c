@@ -126,7 +126,7 @@ static int update_cpu_min_freq(struct cpufreq_policy *cpu_policy,
 
 DECLARE_PER_CPU(struct msm_mpdec_cpudata_t, msm_mpdec_cpudata);
 #endif
-static void check_temp(struct work_struct *work)
+static void __ref check_temp(struct work_struct *work)
 {
     struct cpufreq_policy *cpu_policy = NULL;
     struct tsens_device tsens_dev;
