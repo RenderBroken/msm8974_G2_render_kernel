@@ -1963,13 +1963,13 @@ static int touch_work_pre_proc(struct lge_touch_data *ts)
 	}
 
 	/* Accuracy Solution */
-	if (likely(ts->pdata->role->accuracy_filter_enable)){
+	if (unlikely(ts->pdata->role->accuracy_filter_enable)){
 		if (accuracy_filter_func(ts) < 0)
 			return -EAGAIN;;
 	}
 
 	/* Jitter Solution */
-	if (likely(ts->pdata->role->jitter_filter_enable)){
+	if (unlikely(ts->pdata->role->jitter_filter_enable)){
 		if (jitter_filter_func(ts) < 0)
 			return -EAGAIN;;
 	}
@@ -3422,6 +3422,17 @@ static ssize_t show_virtual_key(struct lge_touch_data *ts, char *buf)
 
 }
 
+static ssize_t show_jitter_solution(struct lge_touch_data *ts, char *buf)
+{
+	int ret = 0;
+
+	ret = sprintf(buf, "%d %d\n",
+				ts->pdata->role->jitter_filter_enable,
+				ts->jitter_filter.adjust_margin);
+
+	return ret;
+}
+
 static ssize_t store_jitter_solution(struct lge_touch_data *ts, const char *buf, size_t count)
 {
 	int ret = 0;
@@ -3433,6 +3444,23 @@ static ssize_t store_jitter_solution(struct lge_touch_data *ts, const char *buf,
 				&ts->jitter_filter.adjust_margin);
 
 	return count;
+}
+
+static ssize_t show_accuracy_solution(struct lge_touch_data *ts, char *buf)
+{
+	int ret = 0;
+
+	ret = sprintf(buf, "%d %d %d %d %d %d %d %d\n",
+				ts->pdata->role->accuracy_filter_enable,
+				ts->accuracy_filter.ignore_pressure_gap,
+				ts->accuracy_filter.delta_max,
+				ts->accuracy_filter.touch_max_count,
+				ts->accuracy_filter.max_pressure,
+				ts->accuracy_filter.direction_count,
+				ts->accuracy_filter.time_to_max_pressure,
+				ts->accuracy_filter.pen_pressure);
+
+	return ret;
 }
 
 static ssize_t store_accuracy_solution(struct lge_touch_data *ts, const char *buf, size_t count)
@@ -3927,8 +3955,8 @@ static LGE_TOUCH_ATTR(reset, S_IRUGO | S_IWUSR, NULL, store_ts_reset);
 static LGE_TOUCH_ATTR(ic_rw, S_IRUGO | S_IWUSR, NULL, ic_register_ctrl);
 static LGE_TOUCH_ATTR(keyguard, S_IRUGO | S_IWUSR, NULL, store_keyguard_info);
 static LGE_TOUCH_ATTR(virtualkeys, S_IRUGO | S_IWUSR, show_virtual_key, NULL);
-static LGE_TOUCH_ATTR(jitter, S_IRUGO | S_IWUSR, NULL, store_jitter_solution);
-static LGE_TOUCH_ATTR(accuracy, S_IRUGO | S_IWUSR, NULL, store_accuracy_solution);
+static LGE_TOUCH_ATTR(jitter, S_IRUGO | S_IWUSR, show_jitter_solution, store_jitter_solution);
+static LGE_TOUCH_ATTR(accuracy, S_IRUGO | S_IWUSR, show_accuracy_solution, store_accuracy_solution);
 #ifdef CUST_G2_TOUCH
 static LGE_TOUCH_ATTR(incoming_call, S_IRUGO | S_IWUSR, NULL, store_incoming_call);
 static LGE_TOUCH_ATTR(f54, S_IRUGO | S_IWUSR, show_f54, store_f54);
@@ -4722,20 +4750,16 @@ static int touch_probe(struct i2c_client *client, const struct i2c_device_id *id
 	}
 
 	/* jitter solution */
-	if (ts->pdata->role->jitter_filter_enable){
-		ts->jitter_filter.adjust_margin = 1000;
-	}
+	ts->jitter_filter.adjust_margin = 1000;
 
 	/* accuracy solution */
-	if (ts->pdata->role->accuracy_filter_enable){
-		ts->accuracy_filter.ignore_pressure_gap = 5;
-		ts->accuracy_filter.delta_max = 30;
-		ts->accuracy_filter.max_pressure = 255;
-		ts->accuracy_filter.time_to_max_pressure = one_sec / 20;
-		ts->accuracy_filter.direction_count = one_sec / 10;
-		ts->accuracy_filter.touch_max_count = one_sec / 2;
-		ts->accuracy_filter.pen_pressure = 35;
-	}
+	ts->accuracy_filter.ignore_pressure_gap = 5;
+	ts->accuracy_filter.delta_max = 30;
+	ts->accuracy_filter.max_pressure = 255;
+	ts->accuracy_filter.time_to_max_pressure = one_sec / 20;
+	ts->accuracy_filter.direction_count = one_sec / 10;
+	ts->accuracy_filter.touch_max_count = one_sec / 2;
+	ts->accuracy_filter.pen_pressure = 35;
 
 #if defined(CONFIG_FB)
 	ts->fb_notif.notifier_call = fb_notifier_callback;
