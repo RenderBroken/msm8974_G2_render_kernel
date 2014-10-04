@@ -1,6 +1,6 @@
 VERSION = 3
 PATCHLEVEL = 4
-SUBLEVEL = 103
+SUBLEVEL = 104
 EXTRAVERSION =
 NAME = Saber-toothed Squirrel
 
@@ -355,15 +355,15 @@ CHECKFLAGS     := -D__linux__ -Dlinux -D__STDC__ -Dunix -D__unix__ \
 		  -Wbitwise -Wno-return-void $(CF)
 
 KERNEL_FLAGS	= -marm -mtune=cortex-a15 -mfpu=neon-vfpv4 \
-		  -mvectorize-with-neon-quad -fgcse-after-reload -fgcse-sm \
-		  -fgcse-las -ftree-loop-im -ftree-loop-ivcanon -fivopts \
-		  -ftree-vectorize -fmodulo-sched -ffast-math
+                  -mvectorize-with-neon-quad -fgcse-after-reload -fgcse-sm \
+                  -fgcse-las -ftree-loop-im -ftree-loop-ivcanon -fivopts \
+                  -ftree-vectorize -fmodulo-sched -ffast-math
 
 MODFLAGS        = -DMODULE \
                   -mfpu=neon-vfpv4 \
                   -mtune=cortex-a15 \
-		  -fgcse-las \
-		  -fpredictive-commoning \
+                  -fgcse-las \
+                  -fpredictive-commoning \
                   -O3
 
 CFLAGS_MODULE   = $(MODFLAGS)
@@ -371,8 +371,8 @@ AFLAGS_MODULE   = $(MODFLAGS)
 LDFLAGS_MODULE  = -T $(srctree)/scripts/module-common.lds
 CFLAGS_KERNEL   = -mfpu=neon-vfpv4 \
                   -mtune=cortex-a15 \
-		  -fgcse-las \
-		  -fpredictive-commoning \
+                  -fgcse-las \
+                  -fpredictive-commoning \
                   -O2
 
 AFLAGS_KERNEL	=
