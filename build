@@ -134,7 +134,7 @@ else
 	case "$bchoice" in
 		y|Y)
 			make "$config"
-			make "$jobcount"
+			make "$jobcount" CONFIG_DEBUG_SECTION_MISMATCH=y
 			exit 0;;
 		n|N )
 			echo "Skipping...";;
