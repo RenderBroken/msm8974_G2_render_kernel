@@ -90,3 +90,5 @@ scripts/*
 arch/arm/boot/*
 arch/arm/kernel/vmlinux.lds
 usr/*
+firmware/audience-es325-fw.aud.gen.S
+/home/renderbroken/android/source/kernel/msm8974_G2_render_kernel/ozip/data
