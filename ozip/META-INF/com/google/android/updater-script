@@ -28,22 +28,10 @@ ui_print(" > Mounting filesystems...");
 run_program("/sbin/busybox", "mount", "/data");
 run_program("/sbin/busybox", "mount", "/system");
 
+set_progress(0.7);
 ui_print(" > Deleting old files...");
 delete_recursive("/data/N4UKM", "/data/UKM");
 delete("/system/etc/init.d/N4UKM", "/system/etc/init.d/UKM", "/system/etc/init.d/UKM_WAKE", "/system/xbin/uci");
-
-set_progress(0.8);
-ui_print(" > Extracting files...");
-package_extract_dir("data", "/data");
-run_program("/sbin/sh", "-c", "mkdir /system/etc/init.d");
-set_perm_recursive(0, 0, 0755, 0755, "/system/etc/init.d");
-package_extract_file("data/UKM/UKM", "/system/etc/init.d/UKM");
-package_extract_file("data/UKM/uci", "/system/xbin/uci");
-
-ui_print(" > Setting permissions...");
-set_perm_recursive(0, 0, 0755, 0755, "/data/UKM");
-set_perm(0, 0, 0755, "/system/etc/init.d/UKM");
-set_perm(0, 0, 0755, "/system/xbin/uci");
 
 # Unmounting filesystems...
 run_program("/sbin/busybox", "umount", "/data");
@@ -55,4 +43,4 @@ run_program("/sbin/busybox", "umount", "/system");
 set_progress(1.0);
 ui_print("");
 ui_print(" * Installation Completed *");
-ui_print(" * Enjoy *");
+ui_print("        * Enjoy *");
