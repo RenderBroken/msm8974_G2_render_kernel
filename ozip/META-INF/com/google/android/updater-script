@@ -4,9 +4,6 @@ ui_print(" for the G2! ");
 ui_print(" ");
 ui_print(" ");
 
-ifelse(is_mounted("/system") == "/system", unmount("/system"));
-ifelse(is_mounted("/cache") == "/cache", unmount("/cache"));
-
 ########################################
 # Mount clean and install kernel files #
 
@@ -16,7 +13,6 @@ package_extract_file("boot.img", "/tmp/boot.img");
 set_progress(0.5);
 set_perm_recursive(0, 0, 0755, 0755, "/tmp");
 assert(run_program("/tmp/loki.sh") == 0);
-set_progress(0.8);
 ui_print(" > Installing Modules                          ");
 mount("ext4", "EMMC", "/dev/block/platform/msm_sdcc.1/by-name/system", "/system");
 assert(run_program("/tmp/cleaner.sh") == 0);
@@ -27,6 +23,31 @@ delete("/tmp/busybox");
 delete("/tmp/loki.sh");
 delete("/tmp/cleaner.sh");
 unmount("/system");
+
+ui_print(" > Mounting filesystems...");
+run_program("/sbin/busybox", "mount", "/data");
+run_program("/sbin/busybox", "mount", "/system");
+
+ui_print(" > Deleting old files...");
+delete_recursive("/data/N4UKM", "/data/UKM");
+delete("/system/etc/init.d/N4UKM", "/system/etc/init.d/UKM", "/system/etc/init.d/UKM_WAKE", "/system/xbin/uci");
+
+set_progress(0.8);
+ui_print(" > Extracting files...");
+package_extract_dir("data", "/data");
+run_program("/sbin/sh", "-c", "mkdir /system/etc/init.d");
+set_perm_recursive(0, 0, 0755, 0755, "/system/etc/init.d");
+package_extract_file("data/UKM/UKM", "/system/etc/init.d/UKM");
+package_extract_file("data/UKM/uci", "/system/xbin/uci");
+
+ui_print(" > Setting permissions...");
+set_perm_recursive(0, 0, 0755, 0755, "/data/UKM");
+set_perm(0, 0, 0755, "/system/etc/init.d/UKM");
+set_perm(0, 0, 0755, "/system/xbin/uci");
+
+# Unmounting filesystems...
+run_program("/sbin/busybox", "umount", "/data");
+run_program("/sbin/busybox", "umount", "/system");
 
 ########################################
 # Finsh kernel installation ############
