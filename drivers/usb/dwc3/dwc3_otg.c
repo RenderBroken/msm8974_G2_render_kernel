@@ -25,6 +25,7 @@
 #include "xhci.h"
 
 #ifdef CONFIG_FORCE_FAST_CHARGE
+#include <linux/mutex.h>
 #include <linux/fastchg.h>
 #endif
 
@@ -45,6 +46,7 @@
 
 #ifdef CONFIG_FORCE_FAST_CHARGE
 int usb_power_curr_now = 500;
+struct mutex fast_charge_lock;
 #endif
 
 #if defined(CONFIG_USB_DWC3_MSM_VZW_SUPPORT)
@@ -567,6 +569,7 @@ static int dwc3_otg_set_power(struct usb_phy *phy, unsigned mA)
 
 	dev_info(phy->dev, "Avail curr from USB = %u\n", mA);
 #if defined(CONFIG_FORCE_FAST_CHARGE) && !defined(CONFIG_SMB349_VZW_FAST_CHG)
+	mutex_lock(&fast_charge_lock);
 	usb_power_curr_now = mA;
 	if (mA > 300) {
 		if (force_fast_charge != force_fast_charge_temp)
@@ -582,6 +585,7 @@ static int dwc3_otg_set_power(struct usb_phy *phy, unsigned mA)
 				force_fast_charge);
 		smb349_thermal_mitigation_update(300);
 	}
+	mutex_unlock(&fast_charge_lock);
 #endif
 
 /* BEGIN : janghyun.baek@lge.com 2012-12-26 For cable detection*/
@@ -592,6 +596,7 @@ static int dwc3_otg_set_power(struct usb_phy *phy, unsigned mA)
 		dotg->psy = power_supply_get_by_name("ac");
 	} else {
 #ifdef CONFIG_FORCE_FAST_CHARGE
+		mutex_lock(&fast_charge_lock);
 		if ((force_fast_charge > 0) &&
 				(fake_charge_ac == FAKE_CHARGE_AC_ENABLE)) {
 			pr_info("msm_otg_notify_power_supply: "
@@ -602,6 +607,7 @@ static int dwc3_otg_set_power(struct usb_phy *phy, unsigned mA)
 					"power_supply_get_by_name(usb)\n");
 			dotg->psy = power_supply_get_by_name("usb");
 		}
+		mutex_unlock(&fast_charge_lock);
 #else
 		pr_info("msm_otg_notify_power_supply: "
 				"power_supply_get_by_name(usb)\n");
@@ -1058,6 +1064,10 @@ int dwc3_otg_init(struct dwc3 *dwc)
 
 	dev_dbg(dwc->dev, "dwc3_otg_init\n");
 
+#ifdef CONFIG_FORCE_FAST_CHARGE
+	mutex_init(&fast_charge_lock);
+#endif
+
 	/*
 	 * GHWPARAMS6[10] bit is SRPSupport.
 	 * This bit also reflects DWC_USB3_EN_OTG
@@ -1184,4 +1194,8 @@ void dwc3_otg_exit(struct dwc3 *dwc)
 
 	if(touch_otg_wq)
 		destroy_workqueue(touch_otg_wq);
+
+#ifdef CONFIG_FORCE_FAST_CHARGE
+	mutex_destroy(&fast_charge_lock);
+#endif
 }
