@@ -30,7 +30,7 @@ run_program("/sbin/busybox", "mount", "/system");
 
 set_progress(0.7);
 ui_print(" > Deleting old files...");
-delete_recursive("/data/N4UKM", "/data/UKM");
+delete_recursive("/data/N4UKM", "/data/UKM", "/sdcard/Synapse");
 delete("/system/etc/init.d/N4UKM", "/system/etc/init.d/UKM", "/system/etc/init.d/UKM_WAKE", "/system/xbin/uci");
 
 # Unmounting filesystems...
