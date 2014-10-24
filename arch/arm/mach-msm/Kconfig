@@ -3161,3 +3161,11 @@ config MSM_SLEEPER
 	default n
 	help
 	  Limit max frequency and shut off cores while screen is off
+
+config MSM_LIMITER
+	bool "MSM Frequency Limiter Driver"
+	depends on (MACH_LGE || POWERSUSPEND || HAS_EARLYSUSPEND)
+	default n
+	help
+	  The MSM Frequency Limiter Driver controls max frequency limit for each CPU
+	  to desired value on suspend/resume
