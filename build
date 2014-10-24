@@ -1,8 +1,8 @@
 #!/bin/bash
 build=/home/renderbroken/android/source/zips/msm8974-zips/
 kernel="Render-Kernel"
-toolchain=/home/renderbroken/android/source/toolchains/LINARO-G2/bin
-toolchain2="arm-cortex_a15-linux-gnueabi-"
+toolchain=/home/renderbroken/android/source/toolchains/arm-eabi-4.9.2/bin
+toolchain2="arm-eabi-"
 kerneltype="zImage"
 jobcount="-j$(grep -c ^processor /proc/cpuinfo)"
 base=0x00000000
