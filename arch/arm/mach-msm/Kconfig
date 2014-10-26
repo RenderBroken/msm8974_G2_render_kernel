@@ -3155,3 +3155,9 @@ config MSM_HOTPLUG
 	help
 	  The MSM hotplug driver controls on-/offlining of additional cores based
 	  on current cpu load.
+
+config MSM_SLEEPER
+	bool "Limit max frequency and shut off cores while screen is off"
+	default n
+	help
+	  Limit max frequency and shut off cores while screen is off
