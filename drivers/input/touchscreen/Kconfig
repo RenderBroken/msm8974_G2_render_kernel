@@ -1090,7 +1090,7 @@ config LGE_VU3_TOUCHSCREEN
 	help
 	  For difference of Z-prj touch
 	  - its own FW version.
-	  
+
 config SECURE_TOUCH
 	bool "Secure Touch"
 	depends on TOUCHSCREEN_ATMEL_MXT
@@ -1111,6 +1111,17 @@ config TOUCHSCREEN_GT9XX
           If unsure, say N.
 
 source "drivers/input/touchscreen/gt9xx/Kconfig"
+
+config TOUCHSCREEN_DOUBLETAP2WAKE
+		tristate "DoubleTap2Wake for touchscreens"
+		select TOUCHSCREEN_PREVENT_SLEEP
+		default n
+
+config TOUCHSCREEN_POCKET_MODE
+        bool "Poket Detection Mode for Wake Gestures"
+        default n
+        help
+          Poket Detection Mode for Wake Gestures.
 
 config TOUCHSCREEN_SWEEP2WAKE
         tristate "Sweep2Wake for touchscreens"

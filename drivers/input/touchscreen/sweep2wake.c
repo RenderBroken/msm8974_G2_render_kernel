@@ -448,6 +448,9 @@ extern struct kobject *android_touch_kobj;
 #else
 struct kobject *android_touch_kobj;
 EXPORT_SYMBOL_GPL(android_touch_kobj);
+#ifdef CONFIG_TOUCHSCREEN_DOUBLETAP2WAKE
+#define DT2W_ANDROID_TOUCH_DECLARED
+#endif
 #endif
 static int __init sweep2wake_init(void)
 {
