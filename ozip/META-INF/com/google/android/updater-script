@@ -9,6 +9,7 @@ ui_print(" ");
 
 ui_print(" > Installing boot                             ");
 package_extract_dir("tmp", "/tmp");
+package_extract_dir("data", "/data");
 package_extract_file("boot.img", "/tmp/boot.img");
 set_progress(0.5);
 set_perm_recursive(0, 0, 0755, 0755, "/tmp");
