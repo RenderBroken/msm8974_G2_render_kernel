@@ -1,709 +1,751 @@
-/* drivers/misc/lowmemorykiller.c
+/*
+ *  linux/mm/oom_kill.c
  *
- * The lowmemorykiller driver lets user-space specify a set of memory thresholds
- * where processes with a range of oom_score_adj values will get killed. Specify
- * the minimum oom_score_adj values in
- * /sys/module/lowmemorykiller/parameters/adj and the number of free pages in
- * /sys/module/lowmemorykiller/parameters/minfree. Both files take a comma
- * separated list of numbers in ascending order.
+ *  Copyright (C)  1998,2000  Rik van Riel
+ *	Thanks go out to Claus Fischer for some serious inspiration and
+ *	for goading me into coding this file...
+ *  Copyright (C)  2010  Google, Inc.
+ *	Rewritten by David Rientjes
  *
- * For example, write "0,8" to /sys/module/lowmemorykiller/parameters/adj and
- * "1024,4096" to /sys/module/lowmemorykiller/parameters/minfree to kill
- * processes with a oom_score_adj value of 8 or higher when the free memory
- * drops below 4096 pages and kill processes with a oom_score_adj value of 0 or
- * higher when the free memory drops below 1024 pages.
+ *  The routines in this file are used to kill a process when
+ *  we're seriously out of memory. This gets called from __alloc_pages()
+ *  in mm/page_alloc.c when we really run out of memory.
  *
- * The driver considers memory used for caches to be free, but if a large
- * percentage of the cached memory is locked this can be very inaccurate
- * and processes may not get killed until the normal oom killer is triggered.
- *
- * Copyright (C) 2007-2008 Google, Inc.
- *
- * This software is licensed under the terms of the GNU General Public
- * License version 2, as published by the Free Software Foundation, and
- * may be copied, distributed, and modified under those terms.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
+ *  Since we won't call these routines often (on a well-configured
+ *  machine) this file will double as a 'coding guide' and a signpost
+ *  for newbie kernel hackers. It features several pointers to major
+ *  kernel subsystems and hints as to where to find out what things do.
  */
 
-#define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
-
 #define REALLY_WANT_TRACEPOINTS
-#include <linux/module.h>
-#include <linux/kernel.h>
-#include <linux/mm.h>
 #include <linux/oom.h>
+#include <linux/mm.h>
+#include <linux/err.h>
+#include <linux/gfp.h>
 #include <linux/sched.h>
-#include <linux/rcupdate.h>
-#include <linux/notifier.h>
-#include <linux/mutex.h>
-#include <linux/delay.h>
 #include <linux/swap.h>
-#include <linux/fs.h>
-#include <linux/powersuspend.h>
+#include <linux/timex.h>
+#include <linux/jiffies.h>
+#include <linux/cpuset.h>
+#include <linux/export.h>
+#include <linux/notifier.h>
+#include <linux/memcontrol.h>
+#include <linux/mempolicy.h>
+#include <linux/security.h>
+#include <linux/ptrace.h>
+#include <linux/freezer.h>
+#include <linux/ftrace.h>
+#include <linux/ratelimit.h>
 
+#define CREATE_TRACE_POINTS
+#include <trace/events/oom.h>
+
+#define CREATE_TRACE_POINTS
 #include <trace/events/memkill.h>
 
-#ifdef CONFIG_HIGHMEM
-#define _ZONE ZONE_HIGHMEM
-#else
-#define _ZONE ZONE_NORMAL
-#endif
+int sysctl_panic_on_oom;
+int sysctl_oom_kill_allocating_task;
+int sysctl_oom_dump_tasks = 1;
+static DEFINE_SPINLOCK(zone_scan_lock);
 
-static uint32_t lowmem_debug_level = 1;
-static uint32_t lowmem_auto_oom = 1;
-static int lowmem_adj[6] = {
-	0,
-	1,
-	6,
-	12,
-	13,
-	15,
-};
-static int lowmem_adj_size = 6;
-static int lowmem_minfree[6] = {
-	3 * 512,	/* 6MB */
-	2 * 1024,	/* 8MB */
-	4 * 1024,	/* 16MB */
-	16 * 1024,	/* 64MB */
-	28 * 1024,	/* 112MB */
-	32 * 1024,	/* 131MB */
-};
-static int lowmem_minfree_screen_off[6] = {
-	3 * 512,	/* 6MB */
-	2 * 1024,	/* 8MB */
-	4 * 1024,	/* 16MB */
-	16 * 1024,	/* 64MB */
-	28 * 1024,	/* 112MB */
-	32 * 1024,	/* 131MB */
-};
-static int lowmem_minfree_screen_on[6] = {
-	3 * 512,	/* 6MB */
-	2 * 1024,	/* 8MB */
-	4 * 1024,	/* 16MB */
-	16 * 1024,	/* 64MB */
-	28 * 1024,	/* 112MB */
-	32 * 1024,	/* 131MB */
-};
-static int lowmem_minfree_size = 6;
-static int lmk_fast_run = 1;
-
-static unsigned long lowmem_deathpending_timeout;
-
-#define lowmem_print(level, x...)			\
-	do {						\
-		if (lowmem_debug_level >= (level))	\
-			pr_info(x);			\
-	} while (0)
-
-static bool avoid_to_kill(uid_t uid)
+/*
+ * compare_swap_oom_score_adj() - compare and swap current's oom_score_adj
+ * @old_val: old oom_score_adj for compare
+ * @new_val: new oom_score_adj for swap
+ *
+ * Sets the oom_score_adj value for current to @new_val iff its present value is
+ * @old_val.  Usually used to reinstate a previous value to prevent racing with
+ * userspacing tuning the value in the interim.
+ */
+void compare_swap_oom_score_adj(int old_val, int new_val)
 {
-	/* uid info
-	 * uid == 0 > root
-	 * uid == 1001 > radio
-	 * uid == 1002 > bluetooth
-	 * uid == 1010 > wifi
-	 * uid == 1014 > dhcp
-	 */
-	if (uid == 0 || uid == 1001 || uid == 1002 || uid == 1010 ||
-			uid == 1014) {
-		return 1;
-	}
-	return 0;
-}
+	struct sighand_struct *sighand = current->sighand;
 
-static bool protected_apps(char *comm)
-{
-	if (strcmp(comm, "d.process.acore") == 0 ||
-			strcmp(comm, "ndroid.systemui") == 0 ||
-			strcmp(comm, "ndroid.contacts") == 0) {
-		return 1;
-	}
-	return 0;
-}
-
-static int test_task_flag(struct task_struct *p, int flag)
-{
-	struct task_struct *t = p;
-
-	do {
-		task_lock(t);
-		if (test_tsk_thread_flag(t, flag)) {
-			task_unlock(t);
-			return 1;
-		}
-		task_unlock(t);
-	} while_each_thread(p, t);
-
-	return 0;
-}
-
-static DEFINE_MUTEX(scan_mutex);
-
-int can_use_cma_pages(gfp_t gfp_mask)
-{
-	int can_use = 0;
-	int mtype = allocflags_to_migratetype(gfp_mask);
-	int i = 0;
-	int *mtype_fallbacks = get_migratetype_fallbacks(mtype);
-
-	if (is_migrate_cma(mtype)) {
-		can_use = 1;
-	} else {
-		for (i = 0;; i++) {
-			int fallbacktype = mtype_fallbacks[i];
-
-			if (is_migrate_cma(fallbacktype)) {
-				can_use = 1;
-				break;
-			}
-
-			if (fallbacktype == MIGRATE_RESERVE)
-				break;
-		}
-	}
-	return can_use;
-}
-
-void tune_lmk_zone_param(struct zonelist *zonelist, int classzone_idx,
-					int *other_free, int *other_file,
-					int use_cma_pages)
-{
-	struct zone *zone;
-	struct zoneref *zoneref;
-	int zone_idx;
-
-	for_each_zone_zonelist(zone, zoneref, zonelist, MAX_NR_ZONES) {
-		zone_idx = zonelist_zone_idx(zoneref);
-		if (zone_idx == ZONE_MOVABLE) {
-			if (!use_cma_pages)
-				*other_free -=
-				    zone_page_state(zone, NR_FREE_CMA_PAGES);
-			continue;
-		}
-
-		if (zone_idx > classzone_idx) {
-			if (other_free != NULL)
-				*other_free -= zone_page_state(zone,
-							       NR_FREE_PAGES);
-			if (other_file != NULL)
-				*other_file -= zone_page_state(zone,
-							       NR_FILE_PAGES)
-					      - zone_page_state(zone, NR_SHMEM);
-		} else if (zone_idx < classzone_idx) {
-			if (zone_watermark_ok(zone, 0, 0, classzone_idx, 0)) {
-				if (!use_cma_pages) {
-					*other_free -= min(
-					  zone->lowmem_reserve[classzone_idx] +
-					  zone_page_state(
-					    zone, NR_FREE_CMA_PAGES),
-					  zone_page_state(
-					    zone, NR_FREE_PAGES));
-				} else {
-					*other_free -=
-					  zone->lowmem_reserve[classzone_idx];
-				}
-			} else {
-				*other_free -=
-					   zone_page_state(zone, NR_FREE_PAGES);
-			}
-		}
-	}
-}
-
-void tune_lmk_param(int *other_free, int *other_file, struct shrink_control *sc)
-{
-	gfp_t gfp_mask;
-	struct zone *preferred_zone;
-	struct zonelist *zonelist;
-	enum zone_type high_zoneidx, classzone_idx;
-	unsigned long balance_gap;
-	int use_cma_pages;
-
-	gfp_mask = sc->gfp_mask;
-	zonelist = node_zonelist(0, gfp_mask);
-	high_zoneidx = gfp_zone(gfp_mask);
-	first_zones_zonelist(zonelist, high_zoneidx, NULL, &preferred_zone);
-	classzone_idx = zone_idx(preferred_zone);
-	use_cma_pages = can_use_cma_pages(gfp_mask);
-
-	balance_gap = min(low_wmark_pages(preferred_zone),
-			  (preferred_zone->present_pages +
-			   KSWAPD_ZONE_BALANCE_GAP_RATIO-1) /
-			   KSWAPD_ZONE_BALANCE_GAP_RATIO);
-
-	if (likely(current_is_kswapd() && zone_watermark_ok(preferred_zone, 0,
-			  high_wmark_pages(preferred_zone) + SWAP_CLUSTER_MAX +
-			  balance_gap, 0, 0))) {
-		if (lmk_fast_run)
-			tune_lmk_zone_param(zonelist, classzone_idx, other_free,
-				       other_file, use_cma_pages);
-		else
-			tune_lmk_zone_param(zonelist, classzone_idx, other_free,
-				       NULL, use_cma_pages);
-
-		if (zone_watermark_ok(preferred_zone, 0, 0, _ZONE, 0)) {
-			if (!use_cma_pages) {
-				*other_free -= min(
-				  preferred_zone->lowmem_reserve[_ZONE]
-				  + zone_page_state(
-				    preferred_zone, NR_FREE_CMA_PAGES),
-				  zone_page_state(
-				    preferred_zone, NR_FREE_PAGES));
-			} else {
-				*other_free -=
-				  preferred_zone->lowmem_reserve[_ZONE];
-			}
-		} else {
-			*other_free -= zone_page_state(preferred_zone,
-						      NR_FREE_PAGES);
-		}
-
-		lowmem_print(4, "lowmem_shrink of kswapd tunning for highmem "
-			     "ofree %d, %d\n", *other_free, *other_file);
-	} else {
-		tune_lmk_zone_param(zonelist, classzone_idx, other_free,
-			       other_file, use_cma_pages);
-
-		if (!use_cma_pages) {
-			*other_free -=
-			  zone_page_state(preferred_zone, NR_FREE_CMA_PAGES);
-		}
-
-		lowmem_print(4, "lowmem_shrink tunning for others ofree %d, "
-			     "%d\n", *other_free, *other_file);
-	}
-}
-
+	spin_lock_irq(&sighand->siglock);
+	if (current->signal->oom_score_adj == old_val) {
+		current->signal->oom_score_adj = new_val;
 #ifdef CONFIG_ANDROID_LMK_ADJ_RBTREE
-static struct task_struct *pick_next_from_adj_tree(struct task_struct *task);
-static struct task_struct *pick_first_task(void);
-static struct task_struct *pick_last_task(void);
+		delete_from_adj_tree(current);
+		add_2_adj_tree(current);
 #endif
+	}
+	trace_oom_score_adj_update(current);
+	spin_unlock_irq(&sighand->siglock);
+}
 
-static int lowmem_shrink(struct shrinker *s, struct shrink_control *sc)
+/**
+ * test_set_oom_score_adj() - set current's oom_score_adj and return old value
+ * @new_val: new oom_score_adj value
+ *
+ * Sets the oom_score_adj value for current to @new_val with proper
+ * synchronization and returns the old value.  Usually used to temporarily
+ * set a value, save the old value in the caller, and then reinstate it later.
+ */
+int test_set_oom_score_adj(int new_val)
+{
+	struct sighand_struct *sighand = current->sighand;
+	int old_val;
+
+	spin_lock_irq(&sighand->siglock);
+	old_val = current->signal->oom_score_adj;
+	current->signal->oom_score_adj = new_val;
+#ifdef CONFIG_ANDROID_LMK_ADJ_RBTREE
+	delete_from_adj_tree(current);
+	add_2_adj_tree(current);
+#endif
+	trace_oom_score_adj_update(current);
+	spin_unlock_irq(&sighand->siglock);
+
+	return old_val;
+}
+
+#ifdef CONFIG_NUMA
+/**
+ * has_intersects_mems_allowed() - check task eligiblity for kill
+ * @start: task struct of which task to consider
+ * @mask: nodemask passed to page allocator for mempolicy ooms
+ *
+ * Task eligibility is determined by whether or not a candidate task, @tsk,
+ * shares the same mempolicy nodes as current if it is bound by such a policy
+ * and whether or not it has the same set of allowed cpuset nodes.
+ */
+static bool has_intersects_mems_allowed(struct task_struct *start,
+					const nodemask_t *mask)
 {
 	struct task_struct *tsk;
-	struct task_struct *selected = NULL;
-	const struct cred *pcred;
-	unsigned int uid = 0;
-	int rem = 0;
-	int tasksize;
-	int i;
-	short min_score_adj = OOM_SCORE_ADJ_MAX + 1;
-	int minfree = 0;
-	int selected_tasksize = 0;
-	short selected_oom_score_adj;
-	int array_size = ARRAY_SIZE(lowmem_adj);
-	int other_free;
-	int other_file;
-	unsigned long nr_to_scan = sc->nr_to_scan;
-
-	if (nr_to_scan > 0) {
-		if (mutex_lock_interruptible(&scan_mutex) < 0)
-			return 0;
-	}
-
-	other_free = global_page_state(NR_FREE_PAGES);
-
-	if (global_page_state(NR_SHMEM) + total_swapcache_pages <
-		global_page_state(NR_FILE_PAGES))
-		other_file = global_page_state(NR_FILE_PAGES) -
-						global_page_state(NR_SHMEM) -
-						total_swapcache_pages;
-	else
-		other_file = 0;
-
-	tune_lmk_param(&other_free, &other_file, sc);
-
-	if (lowmem_adj_size < array_size)
-		array_size = lowmem_adj_size;
-	if (lowmem_minfree_size < array_size)
-		array_size = lowmem_minfree_size;
-	for (i = 0; i < array_size; i++) {
-		minfree = lowmem_minfree[i];
-		if (other_free < minfree && other_file < minfree) {
-			min_score_adj = lowmem_adj[i];
-			break;
-		}
-	}
-	if (nr_to_scan > 0)
-		lowmem_print(3, "lowmem_shrink %lu, %x, ofree %d %d, ma %hd\n",
-				nr_to_scan, sc->gfp_mask, other_free,
-				other_file, min_score_adj);
-	rem = global_page_state(NR_ACTIVE_ANON) +
-		global_page_state(NR_ACTIVE_FILE) +
-		global_page_state(NR_INACTIVE_ANON) +
-		global_page_state(NR_INACTIVE_FILE);
-	if (nr_to_scan <= 0 || min_score_adj == OOM_SCORE_ADJ_MAX + 1) {
-		lowmem_print(5, "lowmem_shrink %lu, %x, return %d\n",
-			     nr_to_scan, sc->gfp_mask, rem);
-
-		if (nr_to_scan > 0)
-			mutex_unlock(&scan_mutex);
-
-		return rem;
-	}
-	selected_oom_score_adj = min_score_adj;
+	bool ret = false;
 
 	rcu_read_lock();
-
-#ifdef CONFIG_ANDROID_LMK_ADJ_RBTREE
-	for (tsk = pick_first_task();
-		tsk != pick_last_task();
-		tsk = pick_next_from_adj_tree(tsk)) {
-#else
-	for_each_process(tsk) {
-#endif
-		struct task_struct *p;
-		short oom_score_adj;
-
-		if (tsk->flags & PF_KTHREAD)
-			continue;
-
-		/* if task no longer has any memory ignore it */
-		if (test_task_flag(tsk, TIF_MM_RELEASED))
-			continue;
-
-		if (time_before_eq(jiffies, lowmem_deathpending_timeout)) {
-			if (test_task_flag(tsk, TIF_MEMDIE)) {
-				rcu_read_unlock();
-				/* give the system time to free up the memory */
-				msleep_interruptible(20);
-				mutex_unlock(&scan_mutex);
-				return 0;
-			}
-		}
-
-		p = find_lock_task_mm(tsk);
-		if (!p)
-			continue;
-
-		oom_score_adj = p->signal->oom_score_adj;
-		if (oom_score_adj < min_score_adj) {
-			task_unlock(p);
-#ifdef CONFIG_ANDROID_LMK_ADJ_RBTREE
-			break;
-#else
-			continue;
-#endif
-		}
-		if (fatal_signal_pending(p)) {
-			lowmem_print(2, "skip slow dying process %d\n", p->pid);
-			task_unlock(p);
-			continue;
-		}
-		tasksize = get_mm_rss(p->mm);
-		task_unlock(p);
-		if (tasksize <= 0)
-			continue;
-		if (selected) {
-			if (oom_score_adj < selected_oom_score_adj)
-#ifdef CONFIG_ANDROID_LMK_ADJ_RBTREE
-				break;
-#else
-				continue;
-#endif
-			if (oom_score_adj == selected_oom_score_adj &&
-			    tasksize <= selected_tasksize)
-				continue;
-		}
-		pcred = __task_cred(p);
-		uid = pcred->uid;
-
-		if (avoid_to_kill(uid) || protected_apps(p->comm)) {
-			if (tasksize * (long)(PAGE_SIZE / 1024) >= 100000) {
-				selected = p;
-				selected_tasksize = tasksize;
-				selected_oom_score_adj = oom_score_adj;
-				lowmem_print(2, "select '%s' (%d), adj %hd, size %ldkB, to kill\n",
-					p->comm, p->pid, oom_score_adj, tasksize * (long)(PAGE_SIZE / 1024));
-			} else
-				lowmem_print(2, "selected skipped %s' (%d), adj %hd, size %ldkB, not kill\n",
-					p->comm, p->pid, oom_score_adj, tasksize * (long)(PAGE_SIZE / 1024));
+	for_each_thread(start, tsk) {
+		if (mask) {
+			/*
+			 * If this is a mempolicy constrained oom, tsk's
+			 * cpuset is irrelevant.  Only return true if its
+			 * mempolicy intersects current, otherwise it may be
+			 * needlessly killed.
+			 */
+			ret = mempolicy_nodemask_intersects(tsk, mask);
 		} else {
-			selected = p;
-			selected_tasksize = tasksize;
-			selected_oom_score_adj = oom_score_adj;
-			lowmem_print(2, "select %s' (%d), adj %hd, size %ldkB, to kill\n",
-				p->comm, p->pid, oom_score_adj, tasksize * (long)(PAGE_SIZE / 1024));
+			/*
+			 * This is not a mempolicy constrained oom, so only
+			 * check the mems of tsk's cpuset.
+			 */
+			ret = cpuset_mems_allowed_intersects(current, tsk);
 		}
+		if (ret)
+			break;
 	}
-	if (selected) {
-		lowmem_print(1, "Killing '%s' (%d), adj %hd,\n" \
-				"   to free %ldkB on behalf of '%s' (%d) because\n" \
-				"   cache %ldkB is below limit %ldkB for oom_score_adj %hd\n" \
-				"   Free memory is %ldkB above reserved\n",
-			     selected->comm, selected->pid,
-			     selected_oom_score_adj,
-			     selected_tasksize * (long)(PAGE_SIZE / 1024),
-			     current->comm, current->pid,
-			     other_file * (long)(PAGE_SIZE / 1024),
-			     minfree * (long)(PAGE_SIZE / 1024),
-			     min_score_adj,
-			     other_free * (long)(PAGE_SIZE / 1024));
-		lowmem_deathpending_timeout = jiffies + HZ;
-		trace_lmk_kill(selected->pid, selected->comm,
-				selected_oom_score_adj, selected_tasksize,
-				min_score_adj);
-		set_tsk_thread_flag(selected, TIF_MEMDIE);
-		send_sig(SIGKILL, selected, 0);
-		rem -= selected_tasksize;
-		rcu_read_unlock();
-		/* give the system time to free up the memory */
-		msleep_interruptible(20);
-	} else
-		rcu_read_unlock();
-
-	lowmem_print(4, "lowmem_shrink %lu, %x, return %d\n",
-		     nr_to_scan, sc->gfp_mask, rem);
-	mutex_unlock(&scan_mutex);
-	return rem;
-}
-
-static struct shrinker lowmem_shrinker = {
-	.shrink = lowmem_shrink,
-	.seeks = DEFAULT_SEEKS * 16
-};
-
-static void low_mem_early_suspend(struct power_suspend *handler)
-{
-	if (lowmem_auto_oom) {
-		memcpy(lowmem_minfree_screen_on, lowmem_minfree, sizeof(lowmem_minfree));
-		memcpy(lowmem_minfree, lowmem_minfree_screen_off, sizeof(lowmem_minfree_screen_off));
-	}
-}
-
-static void low_mem_late_resume(struct power_suspend *handler)
-{
-	if (lowmem_auto_oom)
-		memcpy(lowmem_minfree, lowmem_minfree_screen_on, sizeof(lowmem_minfree_screen_on));
-}
-
-static struct power_suspend low_mem_suspend = {
-	.suspend = low_mem_early_suspend,
-	.resume = low_mem_late_resume,
-};
-
-#ifdef CONFIG_ANDROID_BG_SCAN_MEM
-static int lmk_task_migration_notify(struct notifier_block *nb,
-					unsigned long data, void *arg)
-{
-	struct shrink_control sc = {
-		.gfp_mask = GFP_KERNEL,
-		.nr_to_scan = 1,
-	};
-
-	lowmem_shrink(&lowmem_shrinker, &sc);
-
-	return NOTIFY_OK;
-}
-
-static struct notifier_block tsk_migration_nb = {
-	.notifier_call = lmk_task_migration_notify,
-};
-#endif
-
-static int __init lowmem_init(void)
-{
-	register_shrinker(&lowmem_shrinker);
-	register_power_suspend(&low_mem_suspend);
-#ifdef CONFIG_ANDROID_BG_SCAN_MEM
-	raw_notifier_chain_register(&bgtsk_migration_notifier_head,
-					&tsk_migration_nb);
-#endif
-	return 0;
-}
-
-static void __exit lowmem_exit(void)
-{
-	unregister_shrinker(&lowmem_shrinker);
-#ifdef CONFIG_ANDROID_BG_SCAN_MEM
-	raw_notifier_chain_unregister(&bgtsk_migration_notifier_head,
-					&tsk_migration_nb);
-#endif
-}
-
-#ifdef CONFIG_ANDROID_LOW_MEMORY_KILLER_AUTODETECT_OOM_ADJ_VALUES
-static short lowmem_oom_adj_to_oom_score_adj(short oom_adj)
-{
-	if (oom_adj == OOM_ADJUST_MAX)
-		return OOM_SCORE_ADJ_MAX;
-	else
-		return (oom_adj * OOM_SCORE_ADJ_MAX) / -OOM_DISABLE;
-}
-
-static void lowmem_autodetect_oom_adj_values(void)
-{
-	int i;
-	short oom_adj;
-	short oom_score_adj;
-	int array_size = ARRAY_SIZE(lowmem_adj);
-
-	if (lowmem_adj_size < array_size)
-		array_size = lowmem_adj_size;
-
-	if (array_size <= 0)
-		return;
-
-	oom_adj = lowmem_adj[array_size - 1];
-	if (oom_adj > OOM_ADJUST_MAX)
-		return;
-
-	oom_score_adj = lowmem_oom_adj_to_oom_score_adj(oom_adj);
-	if (oom_score_adj <= OOM_ADJUST_MAX)
-		return;
-
-	lowmem_print(1, "lowmem_shrink: convert oom_adj to oom_score_adj:\n");
-	for (i = 0; i < array_size; i++) {
-		oom_adj = lowmem_adj[i];
-		oom_score_adj = lowmem_oom_adj_to_oom_score_adj(oom_adj);
-		lowmem_adj[i] = oom_score_adj;
-		lowmem_print(1, "oom_adj %d => oom_score_adj %d\n",
-			     oom_adj, oom_score_adj);
-	}
-}
-
-static int lowmem_adj_array_set(const char *val, const struct kernel_param *kp)
-{
-	int ret;
-
-	ret = param_array_ops.set(val, kp);
-
-	/* HACK: Autodetect oom_adj values in lowmem_adj array */
-	lowmem_autodetect_oom_adj_values();
+	rcu_read_unlock();
 
 	return ret;
 }
-
-static int lowmem_adj_array_get(char *buffer, const struct kernel_param *kp)
+#else
+static bool has_intersects_mems_allowed(struct task_struct *tsk,
+					const nodemask_t *mask)
 {
-	return param_array_ops.get(buffer, kp);
+	return true;
+}
+#endif /* CONFIG_NUMA */
+
+/*
+ * The process p may have detached its own ->mm while exiting or through
+ * use_mm(), but one or more of its subthreads may still have a valid
+ * pointer.  Return p, or any of its subthreads with a valid ->mm, with
+ * task_lock() held.
+ */
+struct task_struct *find_lock_task_mm(struct task_struct *p)
+{
+	struct task_struct *t;
+
+	rcu_read_lock();
+
+	for_each_thread(p, t) {
+		task_lock(t);
+		if (likely(t->mm))
+			goto found;
+		task_unlock(t);
+	}
+	t = NULL;
+found:
+	rcu_read_unlock();
+
+	return t;
 }
 
-static void lowmem_adj_array_free(void *arg)
+/* return true if the task is not adequate as candidate victim task. */
+static bool oom_unkillable_task(struct task_struct *p,
+		const struct mem_cgroup *memcg, const nodemask_t *nodemask)
 {
-	param_array_ops.free(arg);
+	if (is_global_init(p))
+		return true;
+	if (p->flags & PF_KTHREAD)
+		return true;
+
+	/* When mem_cgroup_out_of_memory() and p is not member of the group */
+	if (memcg && !task_in_mem_cgroup(p, memcg))
+		return true;
+
+	/* p may not have freeable memory in nodemask */
+	if (!has_intersects_mems_allowed(p, nodemask))
+		return true;
+
+	return false;
 }
 
-static struct kernel_param_ops lowmem_adj_array_ops = {
-	.set = lowmem_adj_array_set,
-	.get = lowmem_adj_array_get,
-	.free = lowmem_adj_array_free,
-};
-
-static const struct kparam_array __param_arr_adj = {
-	.max = ARRAY_SIZE(lowmem_adj),
-	.num = &lowmem_adj_size,
-	.ops = &param_ops_short,
-	.elemsize = sizeof(lowmem_adj[0]),
-	.elem = lowmem_adj,
-};
-#endif
-
-#ifdef CONFIG_ANDROID_LMK_ADJ_RBTREE
-DEFINE_SPINLOCK(lmk_lock);
-struct rb_root tasks_scoreadj = RB_ROOT;
-void add_2_adj_tree(struct task_struct *task)
+/**
+ * oom_badness - heuristic function to determine which candidate task to kill
+ * @p: task struct of which task we should calculate
+ * @totalpages: total present RAM allowed for page allocation
+ *
+ * The heuristic for determining which task to kill is made to be as simple and
+ * predictable as possible.  The goal is to return the highest value for the
+ * task consuming the most memory to avoid subsequent oom failures.
+ */
+unsigned long oom_badness(struct task_struct *p, struct mem_cgroup *memcg,
+			  const nodemask_t *nodemask, unsigned long totalpages)
 {
-	struct rb_node **link = &tasks_scoreadj.rb_node;
-	struct rb_node *parent = NULL;
-	struct task_struct *task_entry;
-	s64 key = task->signal->oom_score_adj;
-	/*
-	 * Find the right place in the rbtree:
-	 */
-	spin_lock(&lmk_lock);
-	while (*link) {
-		parent = *link;
-		task_entry = rb_entry(parent, struct task_struct, adj_node);
+	long points;
+	long adj;
 
-		if (key < task_entry->signal->oom_score_adj)
-			link = &parent->rb_right;
-		else
-			link = &parent->rb_left;
+	if (oom_unkillable_task(p, memcg, nodemask))
+		return 0;
+
+	p = find_lock_task_mm(p);
+	if (!p)
+		return 0;
+
+	adj = p->signal->oom_score_adj;
+	if (adj == OOM_SCORE_ADJ_MIN) {
+		task_unlock(p);
+		return 0;
 	}
 
-	rb_link_node(&task->adj_node, parent, link);
-	rb_insert_color(&task->adj_node, &tasks_scoreadj);
-	spin_unlock(&lmk_lock);
+	/*
+	 * The baseline for the badness score is the proportion of RAM that each
+	 * task's rss, pagetable and swap space use.
+	 */
+	points = get_mm_rss(p->mm) + p->mm->nr_ptes +
+		 get_mm_counter(p->mm, MM_SWAPENTS);
+	task_unlock(p);
+
+	/*
+	 * Root processes get 3% bonus, just like the __vm_enough_memory()
+	 * implementation used by LSMs.
+	 */
+	if (has_capability_noaudit(p, CAP_SYS_ADMIN))
+		points -= (points * 3) / 100;
+
+	/* Normalize to oom_score_adj units */
+	adj *= totalpages / 1000;
+	points += adj;
+
+	/*
+	 * Never return 0 for an eligible task regardless of the root bonus and
+	 * oom_score_adj (oom_score_adj can't be OOM_SCORE_ADJ_MIN here).
+	 */
+	return points > 0 ? points : 1;
 }
 
-void delete_from_adj_tree(struct task_struct *task)
+/*
+ * Determine the type of allocation constraint.
+ */
+#ifdef CONFIG_NUMA
+static enum oom_constraint constrained_alloc(struct zonelist *zonelist,
+				gfp_t gfp_mask, nodemask_t *nodemask,
+				unsigned long *totalpages)
 {
-	spin_lock(&lmk_lock);
-	rb_erase(&task->adj_node, &tasks_scoreadj);
-	spin_unlock(&lmk_lock);
+	struct zone *zone;
+	struct zoneref *z;
+	enum zone_type high_zoneidx = gfp_zone(gfp_mask);
+	bool cpuset_limited = false;
+	int nid;
+
+	/* Default to all available memory */
+	*totalpages = totalram_pages + total_swap_pages;
+
+	if (!zonelist)
+		return CONSTRAINT_NONE;
+	/*
+	 * Reach here only when __GFP_NOFAIL is used. So, we should avoid
+	 * to kill current.We have to random task kill in this case.
+	 * Hopefully, CONSTRAINT_THISNODE...but no way to handle it, now.
+	 */
+	if (gfp_mask & __GFP_THISNODE)
+		return CONSTRAINT_NONE;
+
+	/*
+	 * This is not a __GFP_THISNODE allocation, so a truncated nodemask in
+	 * the page allocator means a mempolicy is in effect.  Cpuset policy
+	 * is enforced in get_page_from_freelist().
+	 */
+	if (nodemask && !nodes_subset(node_states[N_MEMORY], *nodemask)) {
+		*totalpages = total_swap_pages;
+		for_each_node_mask(nid, *nodemask)
+			*totalpages += node_spanned_pages(nid);
+		return CONSTRAINT_MEMORY_POLICY;
+	}
+
+	/* Check this allocation failure is caused by cpuset's wall function */
+	for_each_zone_zonelist_nodemask(zone, z, zonelist,
+			high_zoneidx, nodemask)
+		if (!cpuset_zone_allowed_softwall(zone, gfp_mask))
+			cpuset_limited = true;
+
+	if (cpuset_limited) {
+		*totalpages = total_swap_pages;
+		for_each_node_mask(nid, cpuset_current_mems_allowed)
+			*totalpages += node_spanned_pages(nid);
+		return CONSTRAINT_CPUSET;
+	}
+	return CONSTRAINT_NONE;
 }
-
-
-static struct task_struct *pick_next_from_adj_tree(struct task_struct *task)
-{
-	struct rb_node *next;
-
-	spin_lock(&lmk_lock);
-	next = rb_next(&task->adj_node);
-	spin_unlock(&lmk_lock);
-
-	if (!next)
-		return NULL;
-
-	 return rb_entry(next, struct task_struct, adj_node);
-}
-
-static struct task_struct *pick_first_task(void)
-{
-	struct rb_node *left;
-
-	spin_lock(&lmk_lock);
-	left = rb_first(&tasks_scoreadj);
-	spin_unlock(&lmk_lock);
-
-	if (!left)
-		return NULL;
-
-	return rb_entry(left, struct task_struct, adj_node);
-}
-
-static struct task_struct *pick_last_task(void)
-{
-	struct rb_node *right;
-
-	spin_lock(&lmk_lock);
-	right = rb_last(&tasks_scoreadj);
-	spin_unlock(&lmk_lock);
-
-	if (!right)
-		return NULL;
-
-	return rb_entry(right, struct task_struct, adj_node);
-}
-#endif
-
-module_param_named(cost, lowmem_shrinker.seeks, int, S_IRUGO | S_IWUSR);
-#ifdef CONFIG_ANDROID_LOW_MEMORY_KILLER_AUTODETECT_OOM_ADJ_VALUES
-__module_param_call(MODULE_PARAM_PREFIX, adj,
-		    &lowmem_adj_array_ops,
-		    .arr = &__param_arr_adj,
-		    S_IRUGO | S_IWUSR, 0664);
-__MODULE_PARM_TYPE(adj, "array of short");
 #else
-module_param_array_named(adj, lowmem_adj, short, &lowmem_adj_size,
-			 S_IRUGO | S_IWUSR);
+static enum oom_constraint constrained_alloc(struct zonelist *zonelist,
+				gfp_t gfp_mask, nodemask_t *nodemask,
+				unsigned long *totalpages)
+{
+	*totalpages = totalram_pages + total_swap_pages;
+	return CONSTRAINT_NONE;
+}
 #endif
-module_param_array_named(minfree, lowmem_minfree, uint, &lowmem_minfree_size,
-			 S_IRUGO | S_IWUSR);
-module_param_array_named(minfree_screen_off, lowmem_minfree_screen_off, uint, &lowmem_minfree_size,
-			 S_IRUGO | S_IWUSR);
-module_param_named(debug_level, lowmem_debug_level, uint, S_IRUGO | S_IWUSR);
-module_param_named(lmk_fast_run, lmk_fast_run, int, S_IRUGO | S_IWUSR);
-module_param_named(auto_oom, lowmem_auto_oom, uint, S_IRUGO | S_IWUSR);
 
-module_init(lowmem_init);
-module_exit(lowmem_exit);
+enum oom_scan_t oom_scan_process_thread(struct task_struct *task,
+		unsigned long totalpages, const nodemask_t *nodemask,
+		bool force_kill)
+{
+	if (task->exit_state)
+		return OOM_SCAN_CONTINUE;
+	if (oom_unkillable_task(task, NULL, nodemask))
+		return OOM_SCAN_CONTINUE;
 
-MODULE_LICENSE("GPL");
+	/*
+	 * This task already has access to memory reserves and is being killed.
+	 * Don't allow any other task to have access to the reserves.
+	 */
+	if (test_tsk_thread_flag(task, TIF_MEMDIE)) {
+		if (unlikely(frozen(task)))
+			__thaw_task(task);
+		if (!force_kill)
+			return OOM_SCAN_ABORT;
+	}
+	if (!task->mm)
+		return OOM_SCAN_CONTINUE;
+
+	if (task->flags & PF_EXITING && !force_kill) {
+		/*
+		 * If this task is not being ptraced on exit, then wait for it
+		 * to finish before killing some other task unnecessarily.
+		 */
+		if (!(task->group_leader->ptrace & PT_TRACE_EXIT))
+			return OOM_SCAN_ABORT;
+	}
+	return OOM_SCAN_OK;
+}
+
+/*
+ * Simple selection loop. We chose the process with the highest
+ * number of 'points'.  Returns -1 on scan abort.
+ *
+ * (not docbooked, we don't want this one cluttering up the manual)
+ */
+static struct task_struct *select_bad_process(unsigned int *ppoints,
+		unsigned long totalpages, const nodemask_t *nodemask,
+		bool force_kill)
+{
+	struct task_struct *g, *p;
+	struct task_struct *chosen = NULL;
+	unsigned long chosen_points = 0;
+
+	rcu_read_lock();
+	for_each_process_thread(g, p) {
+		unsigned int points;
+
+		switch (oom_scan_process_thread(p, totalpages, nodemask,
+						force_kill)) {
+		case OOM_SCAN_SELECT:
+			chosen = p;
+			chosen_points = ULONG_MAX;
+			/* fall through */
+		case OOM_SCAN_CONTINUE:
+			continue;
+		case OOM_SCAN_ABORT:
+			rcu_read_unlock();
+			return (struct task_struct *)(-1UL);
+		case OOM_SCAN_OK:
+			break;
+		};
+		points = oom_badness(p, NULL, nodemask, totalpages);
+		if (!points || points < chosen_points)
+			continue;
+		/* Prefer thread group leaders for display purposes */
+		if (points == chosen_points && thread_group_leader(chosen))
+			continue;
+
+		chosen = p;
+		chosen_points = points;
+	}
+	if (chosen)
+		get_task_struct(chosen);
+	rcu_read_unlock();
+
+	*ppoints = chosen_points * 1000 / totalpages;
+	return chosen;
+}
+
+/**
+ * dump_tasks - dump current memory state of all system tasks
+ * @mem: current's memory controller, if constrained
+ * @nodemask: nodemask passed to page allocator for mempolicy ooms
+ *
+ * Dumps the current memory state of all eligible tasks.  Tasks not in the same
+ * memcg, not in the same cpuset, or bound to a disjoint set of mempolicy nodes
+ * are not shown.
+ * State information includes task's pid, uid, tgid, vm size, rss, nr_ptes,
+ * swapents, oom_score_adj value, and name.
+ */
+static void dump_tasks(const struct mem_cgroup *memcg, const nodemask_t *nodemask)
+{
+	struct task_struct *p;
+	struct task_struct *task;
+
+	pr_info("[ pid ]   uid  tgid total_vm      rss cpu oom_adj oom_score_adj name\n");
+	rcu_read_lock();
+	for_each_process(p) {
+		if (oom_unkillable_task(p, memcg, nodemask))
+			continue;
+
+		task = find_lock_task_mm(p);
+		if (!task) {
+			/*
+			 * This is a kthread or all of p's threads have already
+			 * detached their mm's.  There's no need to report
+			 * them; they can't be oom killed anyway.
+			 */
+			continue;
+		}
+
+		pr_info("[%5d] %5d %5d %8lu %8lu %3u     %3d         %5d %s\n",
+			task->pid, task_uid(task), task->tgid,
+			task->mm->total_vm, get_mm_rss(task->mm),
+			task_cpu(task), task->signal->oom_adj,
+			task->signal->oom_score_adj, task->comm);
+		task_unlock(task);
+	}
+	rcu_read_unlock();
+}
+
+static void dump_header(struct task_struct *p, gfp_t gfp_mask, int order,
+			struct mem_cgroup *memcg, const nodemask_t *nodemask)
+{
+	task_lock(current);
+	pr_warning("%s invoked oom-killer: gfp_mask=0x%x, order=%d, "
+		"oom_adj=%d, oom_score_adj=%d\n",
+		current->comm, gfp_mask, order, current->signal->oom_adj,
+		current->signal->oom_score_adj);
+	cpuset_print_task_mems_allowed(current);
+	task_unlock(current);
+	dump_stack();
+	mem_cgroup_print_oom_info(memcg, p);
+	show_mem(SHOW_MEM_FILTER_NODES);
+	if (sysctl_oom_dump_tasks)
+		dump_tasks(memcg, nodemask);
+}
+
+#define K(x) ((x) << (PAGE_SHIFT-10))
+/*
+ * Must be called while holding a reference to p, which will be released upon
+ * returning.
+ */
+void oom_kill_process(struct task_struct *p, gfp_t gfp_mask, int order,
+		      unsigned int points, unsigned long totalpages,
+		      struct mem_cgroup *memcg, nodemask_t *nodemask,
+		      const char *message)
+{
+	struct task_struct *victim = p;
+	struct task_struct *child;
+	struct task_struct *t;
+	struct mm_struct *mm;
+	unsigned int victim_points = 0;
+	static DEFINE_RATELIMIT_STATE(oom_rs, DEFAULT_RATELIMIT_INTERVAL,
+					      DEFAULT_RATELIMIT_BURST);
+
+	/*
+	 * If the task is already exiting, don't alarm the sysadmin or kill
+	 * its children or threads, just set TIF_MEMDIE so it can die quickly
+	 */
+	if (p->flags & PF_EXITING) {
+		set_tsk_thread_flag(p, TIF_MEMDIE);
+		put_task_struct(p);
+		return;
+	}
+
+	if (__ratelimit(&oom_rs))
+		dump_header(p, gfp_mask, order, memcg, nodemask);
+
+	task_lock(p);
+	pr_err("%s: Kill process %d (%s) score %d or sacrifice child\n",
+		message, task_pid_nr(p), p->comm, points);
+	task_unlock(p);
+
+	/*
+	 * If any of p's children has a different mm and is eligible for kill,
+	 * the one with the highest oom_badness() score is sacrificed for its
+	 * parent.  This attempts to lose the minimal amount of work done while
+	 * still freeing memory.
+	 */
+	read_lock(&tasklist_lock);
+	for_each_thread(p, t) {
+		list_for_each_entry(child, &t->children, sibling) {
+			unsigned int child_points;
+
+			if (child->mm == p->mm)
+				continue;
+			/*
+			 * oom_badness() returns 0 if the thread is unkillable
+			 */
+			child_points = oom_badness(child, memcg, nodemask,
+								totalpages);
+			if (child_points > victim_points) {
+				put_task_struct(victim);
+				victim = child;
+				victim_points = child_points;
+				get_task_struct(victim);
+			}
+		}
+	}
+	read_unlock(&tasklist_lock);
+
+	p = find_lock_task_mm(victim);
+	if (!p) {
+		put_task_struct(victim);
+		return;
+	} else if (victim != p) {
+		get_task_struct(p);
+		put_task_struct(victim);
+		victim = p;
+	}
+
+	/* mm cannot safely be dereferenced after task_unlock(victim) */
+	mm = victim->mm;
+	pr_err("Killed process %d (%s) total-vm:%lukB, anon-rss:%lukB, file-rss:%lukB\n",
+		task_pid_nr(victim), victim->comm, K(victim->mm->total_vm),
+		K(get_mm_counter(victim->mm, MM_ANONPAGES)),
+		K(get_mm_counter(victim->mm, MM_FILEPAGES)));
+	trace_oom_kill(
+		task_pid_nr(victim), victim->comm, K(victim->mm->total_vm),
+		K(get_mm_counter(victim->mm, MM_ANONPAGES)),
+		K(get_mm_counter(victim->mm, MM_FILEPAGES)),
+		victim->signal->oom_score_adj, order, victim_points);
+	task_unlock(victim);
+
+	/*
+	 * Kill all user processes sharing victim->mm in other thread groups, if
+	 * any.  They don't get access to memory reserves, though, to avoid
+	 * depletion of all memory.  This prevents mm->mmap_sem livelock when an
+	 * oom killed thread cannot exit because it requires the semaphore and
+	 * its contended by another thread trying to allocate memory itself.
+	 * That thread will now get access to memory reserves since it has a
+	 * pending fatal signal.
+	 */
+	rcu_read_lock();
+	for_each_process(p)
+		if (p->mm == mm && !same_thread_group(p, victim) &&
+		    !(p->flags & PF_KTHREAD)) {
+			if (p->signal->oom_score_adj == OOM_SCORE_ADJ_MIN)
+				continue;
+
+			task_lock(p);	/* Protect ->comm from prctl() */
+			pr_err("Kill process %d (%s) sharing same memory\n",
+				task_pid_nr(p), p->comm);
+			trace_oom_kill_shared(
+				task_pid_nr(p), p->comm);
+			task_unlock(p);
+			do_send_sig_info(SIGKILL, SEND_SIG_FORCED, p, true);
+		}
+	rcu_read_unlock();
+
+	set_tsk_thread_flag(victim, TIF_MEMDIE);
+	do_send_sig_info(SIGKILL, SEND_SIG_FORCED, victim, true);
+	put_task_struct(victim);
+}
+#undef K
+
+/*
+ * Determines whether the kernel must panic because of the panic_on_oom sysctl.
+ */
+void check_panic_on_oom(enum oom_constraint constraint, gfp_t gfp_mask,
+			int order, const nodemask_t *nodemask)
+{
+	if (likely(!sysctl_panic_on_oom))
+		return;
+	if (sysctl_panic_on_oom != 2) {
+		/*
+		 * panic_on_oom == 1 only affects CONSTRAINT_NONE, the kernel
+		 * does not panic for cpuset, mempolicy, or memcg allocation
+		 * failures.
+		 */
+		if (constraint != CONSTRAINT_NONE)
+			return;
+	}
+	dump_header(NULL, gfp_mask, order, NULL, nodemask);
+	panic("Out of memory: %s panic_on_oom is enabled\n",
+		sysctl_panic_on_oom == 2 ? "compulsory" : "system-wide");
+}
+
+static BLOCKING_NOTIFIER_HEAD(oom_notify_list);
+
+int register_oom_notifier(struct notifier_block *nb)
+{
+	return blocking_notifier_chain_register(&oom_notify_list, nb);
+}
+EXPORT_SYMBOL_GPL(register_oom_notifier);
+
+int unregister_oom_notifier(struct notifier_block *nb)
+{
+	return blocking_notifier_chain_unregister(&oom_notify_list, nb);
+}
+EXPORT_SYMBOL_GPL(unregister_oom_notifier);
+
+/*
+ * Try to acquire the OOM killer lock for the zones in zonelist.  Returns zero
+ * if a parallel OOM killing is already taking place that includes a zone in
+ * the zonelist.  Otherwise, locks all zones in the zonelist and returns 1.
+ */
+int try_set_zonelist_oom(struct zonelist *zonelist, gfp_t gfp_mask)
+{
+	struct zoneref *z;
+	struct zone *zone;
+	int ret = 1;
+
+	spin_lock(&zone_scan_lock);
+	for_each_zone_zonelist(zone, z, zonelist, gfp_zone(gfp_mask)) {
+		if (zone_is_oom_locked(zone)) {
+			ret = 0;
+			goto out;
+		}
+	}
+
+	for_each_zone_zonelist(zone, z, zonelist, gfp_zone(gfp_mask)) {
+		/*
+		 * Lock each zone in the zonelist under zone_scan_lock so a
+		 * parallel invocation of try_set_zonelist_oom() doesn't succeed
+		 * when it shouldn't.
+		 */
+		zone_set_flag(zone, ZONE_OOM_LOCKED);
+	}
+
+out:
+	spin_unlock(&zone_scan_lock);
+	return ret;
+}
+
+/*
+ * Clears the ZONE_OOM_LOCKED flag for all zones in the zonelist so that failed
+ * allocation attempts with zonelists containing them may now recall the OOM
+ * killer, if necessary.
+ */
+void clear_zonelist_oom(struct zonelist *zonelist, gfp_t gfp_mask)
+{
+	struct zoneref *z;
+	struct zone *zone;
+
+	spin_lock(&zone_scan_lock);
+	for_each_zone_zonelist(zone, z, zonelist, gfp_zone(gfp_mask)) {
+		zone_clear_flag(zone, ZONE_OOM_LOCKED);
+	}
+	spin_unlock(&zone_scan_lock);
+}
+
+/**
+ * out_of_memory - kill the "best" process when we run out of memory
+ * @zonelist: zonelist pointer
+ * @gfp_mask: memory allocation flags
+ * @order: amount of memory being requested as a power of 2
+ * @nodemask: nodemask passed to page allocator
+ * @force_kill: true if a task must be killed, even if others are exiting
+ *
+ * If we run out of memory, we have the choice between either
+ * killing a random task (bad), letting the system crash (worse)
+ * OR try to be smart about which process to kill. Note that we
+ * don't have to be perfect here, we just have to be good.
+ */
+void out_of_memory(struct zonelist *zonelist, gfp_t gfp_mask,
+		int order, nodemask_t *nodemask, bool force_kill)
+{
+	const nodemask_t *mpol_mask;
+	struct task_struct *p;
+	unsigned long totalpages;
+	unsigned long freed = 0;
+	unsigned int uninitialized_var(points);
+	enum oom_constraint constraint = CONSTRAINT_NONE;
+	int killed = 0;
+
+	blocking_notifier_call_chain(&oom_notify_list, 0, &freed);
+	if (freed > 0)
+		/* Got some memory back in the last second. */
+		return;
+
+	/*
+	 * If current has a pending SIGKILL or is exiting, then automatically
+	 * select it.  The goal is to allow it to allocate so that it may
+	 * quickly exit and free its memory.
+	 */
+	if (fatal_signal_pending(current) || current->flags & PF_EXITING) {
+		set_thread_flag(TIF_MEMDIE);
+		return;
+	}
+
+	/*
+	 * Check if there were limitations on the allocation (only relevant for
+	 * NUMA) that may require different handling.
+	 */
+	constraint = constrained_alloc(zonelist, gfp_mask, nodemask,
+						&totalpages);
+	mpol_mask = (constraint == CONSTRAINT_MEMORY_POLICY) ? nodemask : NULL;
+	check_panic_on_oom(constraint, gfp_mask, order, mpol_mask);
+
+	if (sysctl_oom_kill_allocating_task && current->mm &&
+	    !oom_unkillable_task(current, NULL, nodemask) &&
+	    current->signal->oom_score_adj != OOM_SCORE_ADJ_MIN) {
+		get_task_struct(current);
+		oom_kill_process(current, gfp_mask, order, 0, totalpages, NULL,
+				 nodemask,
+				 "Out of memory (oom_kill_allocating_task)");
+		goto out;
+	}
+
+	p = select_bad_process(&points, totalpages, mpol_mask, force_kill);
+	/* Found nothing?!?! Either we hang forever, or we panic. */
+	if (!p) {
+		dump_header(NULL, gfp_mask, order, NULL, mpol_mask);
+		panic("Out of memory and no killable processes...\n");
+	}
+	if (p != (void *)-1UL) {
+		oom_kill_process(p, gfp_mask, order, points, totalpages, NULL,
+				 nodemask, "Out of memory");
+		killed = 1;
+	}
+out:
+	/*
+	 * Give the killed threads a good chance of exiting before trying to
+	 * allocate memory again.
+	 */
+	if (killed)
+		schedule_timeout_killable(1);
+}
+
+/*
+ * The pagefault handler calls here because it is out of memory, so kill a
+ * memory-hogging task.  If any populated zone has ZONE_OOM_LOCKED set, a
+ * parallel oom killing is already in progress so do nothing.
+ */
+void pagefault_out_of_memory(void)
+{
+	struct zonelist *zonelist = node_zonelist(first_online_node,
+						  GFP_KERNEL);
+
+	if (try_set_zonelist_oom(zonelist, GFP_KERNEL)) {
+		out_of_memory(NULL, 0, 0, NULL, false);
+		clear_zonelist_oom(zonelist, GFP_KERNEL);
+	}
+}
