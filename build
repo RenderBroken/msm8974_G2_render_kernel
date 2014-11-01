@@ -1,7 +1,7 @@
 #!/bin/bash
 build=/home/renderbroken/android/source/zips/msm8974-zips/
 kernel="Render-Kernel"
-toolchain=/home/renderbroken/android/source/toolchains/arm-eabi-4.9.2/bin
+toolchain=/home/renderbroken/android/source/toolchains/g2-linux-gnueabi-4.9.3/bin
 toolchain2="arm-eabi-"
 kerneltype="zImage"
 jobcount="-j$(grep -c ^processor /proc/cpuinfo)"
