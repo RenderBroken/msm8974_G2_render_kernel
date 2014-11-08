@@ -150,6 +150,11 @@ config CPU_FREQ_DEFAULT_GOV_BACON
 	  loading your cpufreq low-level hardware driver, using the
 	  'bacon' governor for latency-sensitive workloads.
 
+config CPU_FREQ_DEFAULT_GOV_ALUCARD
+	bool "alucard"
+	select CPU_FREQ_GOV_ALUCARD
+	help
+
 config CPU_FREQ_DEFAULT_GOV_INTELLIDEMAND
 	bool "intellidemand"
 	select CPU_FREQ_GOV_INTELLIDEMAND
@@ -400,6 +405,10 @@ config CPU_FREQ_GOV_HYPER
 config CPU_FREQ_GOV_OPTIMAX
 	tristate "'optimax' cpufreq policy governor"
 	select CPU_FREQ_TABLE
+
+config CPU_FREQ_GOV_ALUCARD
+	tristate "'alucard' cpufreq governor"
+	depends on CPU_FREQ
 
 menu "x86 CPU frequency scaling drivers"
 depends on X86
