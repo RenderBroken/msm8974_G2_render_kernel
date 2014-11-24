@@ -92,7 +92,8 @@ if [ -f ozip/boot.img ]; then
 		y|Y )
 			export ARCH=arm
 			export CROSS_COMPILE=$toolchain/"$toolchain2"
-			rm -rf ozip/{system,boot.img}
+			rm -rf ozip/boot.img
+			rm -rf ozip/system/lib/modules
 			rm -rf arch/arm/boot/"$kerneltype"
 			mkdir -p ozip/system/lib/modules
 			make clean && make mrproper
@@ -112,7 +113,7 @@ if [ -f ozip/boot.img ]; then
 fi
 if [ -f arch/arm/boot/"$kerneltype" ]; then
 	cp arch/arm/boot/"$kerneltype" /home/renderbroken/android/source/out/g2
-	rm -rf ozip/system
+	rm -rf ozip/system/modules/*
 	mkdir -p ozip/system/lib/modules
 	find . -name "*.ko" -exec cp {} ozip/system/lib/modules \;
 else
@@ -122,7 +123,8 @@ else
 		y|Y )
 			export ARCH=arm
 			export CROSS_COMPILE=$toolchain/"$toolchain2"
-			rm -rf ozip/{system,boot.img}
+			rm -rf ozip/boot.img
+			rm -rf ozip/system/lib/modules
 			rm -rf arch/arm/boot/"$kerneltype"
 			mkdir -p ozip/system/lib/modules
 			make clean && make mrproper
