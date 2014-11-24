@@ -3118,6 +3118,14 @@ config INTELLI_HOTPLUG
 	default n
 	help
 	  Generic Intelli-plug cpu hotplug driver for ARM SOCs
+
+config BRICKED_HOTPLUG
+	bool "Enable kernel based mpdecision"
+	depends on MSM_SMP
+	default n
+	help
+	  This enables kernel based multi core control.
+	  (up/down hotplug based on load)
 	  
 config MSM_RUN_QUEUE_STATS_BE_CONSERVATIVE
 	bool "Use a more conservative computation for RQ Stats"
