@@ -19,7 +19,6 @@
 #include <linux/cpufreq.h>
 #include <linux/cpu.h>
 #include <linux/sched.h>
-#include <linux/sched/rt.h>
 #include <linux/jiffies.h>
 #include <linux/smpboot.h>
 #include <linux/moduleparam.h>

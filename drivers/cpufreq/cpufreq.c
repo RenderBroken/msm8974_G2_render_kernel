@@ -1854,7 +1854,7 @@ no_policy:
 }
 EXPORT_SYMBOL(cpufreq_update_policy);
 
- /*
+/*
  *	cpufreq_set_freq - set max/min freq for a cpu
  *	@cpu: CPU whose frequency needs to be changed
  */
@@ -1876,14 +1876,14 @@ int cpufreq_set_freq(unsigned int max_freq, unsigned int min_freq,
 	} else {
 		cpu_policy = __cpufreq_cpu_get(cpu, 1);
 		if (!cpu_policy) {
-			val = per_cpu(cpufreq_policy_save, cpu).gov;
-			goto invalid;
+			put_online_cpus();
+			return -EINVAL;
 		}
 
 		if (lock_policy_rwsem_write(cpu) < 0) {
 			__cpufreq_cpu_put(cpu_policy, true);
-			val = per_cpu(cpufreq_policy_save, cpu).gov;
-			goto invalid;
+			put_online_cpus();
+			return -EINVAL;
 		}
 
 		if (max_freq && max_freq >= cpu_policy->min) {
@@ -1899,7 +1899,6 @@ int cpufreq_set_freq(unsigned int max_freq, unsigned int min_freq,
 
 		__cpufreq_cpu_put(cpu_policy, true);
 	}
-invalid:
 	put_online_cpus();
 
 	return ret;
@@ -2034,14 +2033,14 @@ char *cpufreq_get_gov(unsigned int cpu)
 	} else {
 		policy = __cpufreq_cpu_get(cpu, 1);
 		if (!policy) {
-			put_online_cpus();
-			return val;
+			val = per_cpu(cpufreq_policy_save, cpu).gov;
+			goto invalid;
 		}
 
 		if (lock_policy_rwsem_read(cpu) < 0) {
 			__cpufreq_cpu_put(policy, true);
-			put_online_cpus();
-			return val;
+			val = per_cpu(cpufreq_policy_save, cpu).gov;
+			goto invalid;
 		}
 
 		if (policy->policy == CPUFREQ_POLICY_POWERSAVE)
@@ -2055,6 +2054,7 @@ char *cpufreq_get_gov(unsigned int cpu)
 
 		__cpufreq_cpu_put(policy, true);
 	}
+invalid:
 	put_online_cpus();
 	return val;
 }
