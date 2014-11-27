@@ -58,10 +58,10 @@ select panel in lgd jdi
 do
 case "$panel" in
 	"lgd")
-		cmdline="console=ttyHSL0,115200,n8 androidboot.hardware=g2 user_debug=31 msm_rtb.filter=0x0 mdss_mdp.panel=1:dsi:0:qcom,mdss_dsi_g2_lgd_cmd"
+		cmdline="console=ttyHSL0,115200,n8 androidboot.hardware=g2 user_debug=31 msm_rtb.filter=0x0 mdss_mdp.panel=1:dsi:0:qcom,mdss_dsi_g2_lgd_cmd androidboot.selinux=permissive"
 		break;;
 	"jdi")
-		cmdline="console=ttyHSL0,115200,n8 androidboot.hardware=g2 user_debug=31 msm_rtb.filter=0x0 mdss_mdp.panel=1:dsi:0:qcom,mdss_dsi_g2_jdi_cmd"
+		cmdline="console=ttyHSL0,115200,n8 androidboot.hardware=g2 user_debug=31 msm_rtb.filter=0x0 mdss_mdp.panel=1:dsi:0:qcom,mdss_dsi_g2_jdi_cmd androidboot.selinux=permissive"
 		break;;
 esac
 done
@@ -77,8 +77,8 @@ case "$target" in
 		break;;
 	"aosp")
 		rdflag=2
-		rom="AOSP"
-		ramdisk=/home/renderbroken/android/source/kernel/msm8974_G2_render_kernel_ramdisk/ramdisk_aosp
+		rom="Android-L"
+		ramdisk=/home/renderbroken/android/source/kernel/msm8974_G2_render_kernel_ramdisk/ramdisk_android_L
 		break;;
 esac
 done
