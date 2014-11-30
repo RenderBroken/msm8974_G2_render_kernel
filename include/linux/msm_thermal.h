@@ -59,19 +59,24 @@ struct msm_thermal_stat {
 	int32_t psm_temp_degC;
 	int32_t psm_temp_hyst_degC;
 };
+#endif
 
 #ifdef CONFIG_THERMAL_MONITOR
 extern int msm_thermal_init(struct msm_thermal_data *pdata);
+#ifndef CONFIG_BRICKED_THERMAL
 extern int msm_thermal_device_init(void);
+#endif
 #else
 static inline int msm_thermal_init(struct msm_thermal_data *pdata)
 {
 	return -ENOSYS;
 }
+#ifndef CONFIG_BRICKED_THERMAL
 static inline int msm_thermal_device_init(void)
 {
 	return -ENOSYS;
 }
+#endif
 #endif
 
 #endif /*__MSM_THERMAL_H*/
