@@ -20,7 +20,6 @@
 #include <linux/cpu.h>
 #include <linux/of.h>
 #include <mach/mpm.h>
-#include <linux/quickwakeup.h>
 #include "pm.h"
 #include "rpm-notifier.h"
 #include "spm.h"
@@ -444,7 +443,6 @@ static struct msm_pm_sleep_ops msm_lpm_ops = {
 	.lowest_limits = msm_lpm_lowest_limits,
 	.enter_sleep = msm_lpm_enter_sleep,
 	.exit_sleep = msm_lpm_exit_sleep,
-	.suspend_again = quickwakeup_suspend_again,
 };
 
 static int msm_lpm_get_l2_cache_value(struct device_node *node,
