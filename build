@@ -170,10 +170,15 @@ else
 	exit 0;
 fi
 
+echo "Kernel Bump Boot.img..."
+sh kernel_bump.sh
+mv ozip/boot_bumped.img ozip/boot.img
+echo "Kernel BUMP done!";
+
 echo "Zipping..."
 cd ozip
-zip -r ../"$kernel"-"$rom"_"$variant"-$CURRENTDATE.zip .
-mv ../"$kernel"-"$rom"_"$variant"-$CURRENTDATE.zip $build
+zip -r ../"$kernel"-"$rom"_"$variant"-$CURRENTDATE-bumped-.zip .
+mv ../"$kernel"-"$rom"_"$variant"-$CURRENTDATE-bumped-.zip $build
 cd ..
 rm -rf /home/renderbroken/android/source/out/g2/*
 echo "Done..."
