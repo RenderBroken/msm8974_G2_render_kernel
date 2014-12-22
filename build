@@ -1,6 +1,6 @@
 #!/bin/bash
 build=/home/renderbroken/android/source/zips/msm8974-zips/
-kernel="Render-Kernel"
+kernel="RenderKernel"
 toolchain=/home/renderbroken/android/source/toolchains/g2-linux-gnueabi-4.9.3/bin
 toolchain2="arm-eabi-"
 kerneltype="zImage"
@@ -12,7 +12,7 @@ tags_offset=0x04800000
 CURRENTDATE=$(date +"%m-%d")
 
 echo "Pick variant..."
-select choice in d800 d801 d802 d803 ls980 vs980 f320x
+select choice in d800 d801 d802 d803 ls980 vs980 f320x l01f
 do
 case "$choice" in
 	"d800")
@@ -50,6 +50,11 @@ case "$choice" in
 		config="f320x_defconfig"
 		ramdisk=/home/renderbroken/android/source/kernel/msm8974_G2_render_kernel_ramdisk/ramdisk/f320x.lz4
 		break;;
+	"l01f")
+		variant="l01f"
+		config="l01f_defconfig"
+#		ramdisk=/home/renderbroken/android/source/kernel/msm8974_G2_render_kernel_ramdisk/ramdisk/f320x.lz4
+		break;;
 esac
 done
 
@@ -77,7 +82,7 @@ case "$target" in
 		break;;
 	"aosp")
 		rdflag=2
-		rom="Android-L"
+		rom="LP"
 		ramdisk=/home/renderbroken/android/source/kernel/msm8974_G2_render_kernel_ramdisk/ramdisk_android_L
 		break;;
 esac
@@ -177,8 +182,8 @@ echo "Kernel BUMP done!";
 
 echo "Zipping..."
 cd ozip
-zip -r ../"$kernel"-"$rom"_"$variant"-$CURRENTDATE-bumped-.zip .
-mv ../"$kernel"-"$rom"_"$variant"-$CURRENTDATE-bumped-.zip $build
+zip -r ../"$kernel"-"$rom"_"$variant"-bumped-.zip .
+mv ../"$kernel"-"$rom"_"$variant"-bumped-.zip $build
 cd ..
 rm -rf /home/renderbroken/android/source/out/g2/*
 echo "Done..."
