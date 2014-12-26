@@ -3105,3 +3105,11 @@ config INTELLI_HOTPLUG
 	default n
 	help
 	  Generic Intelli-plug cpu hotplug driver for ARM SOCs
+	  
+config MSM_RUN_QUEUE_STATS_BE_CONSERVATIVE
+	bool "Use a more conservative computation for RQ Stats"
+	depends on MSM_RUN_QUEUE_STATS
+	default n
+	help
+	  Enable more conservative computation of load and size of the run
+	  queue.
