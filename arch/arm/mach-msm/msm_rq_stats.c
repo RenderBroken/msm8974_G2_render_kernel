@@ -38,12 +38,12 @@
 
 struct notifier_block freq_transition;
 struct notifier_block cpu_hotplug;
+struct notifier_block freq_policy;
 
 struct cpu_load_data {
 	u64 prev_cpu_idle;
 	u64 prev_cpu_wall;
 	unsigned int avg_load_maxfreq;
-	unsigned int cur_load_maxfreq;
 	unsigned int samples;
 	unsigned int window_size;
 	unsigned int cur_freq;
@@ -53,6 +53,17 @@ struct cpu_load_data {
 };
 
 static DEFINE_PER_CPU(struct cpu_load_data, cpuload);
+
+static inline cputime64_t get_cpu_iowait_time(unsigned int cpu,
+							cputime64_t *wall)
+{
+	u64 iowait_time = get_cpu_iowait_time_us(cpu, wall);
+
+	if (iowait_time == -1ULL)
+		return 0;
+
+	return iowait_time;
+}
 
 static int update_average_load(unsigned int freq, unsigned int cpu)
 {
@@ -104,6 +115,38 @@ static int update_average_load(unsigned int freq, unsigned int cpu)
 	return 0;
 }
 
+#ifdef CONFIG_MSM_RUN_QUEUE_STATS_BE_CONSERVATIVE
+
+static unsigned int report_load_at_max_freq(void)
+{
+	int cpu;
+	struct cpu_load_data *pcpu;
+	uint64_t timed_load = 0;
+	unsigned int max_window_size = 0;
+
+	for_each_online_cpu(cpu) {
+		pcpu = &per_cpu(cpuload, cpu);
+
+		mutex_lock(&pcpu->cpu_load_mutex);
+
+		update_average_load(pcpu->cur_freq, cpu);
+
+		timed_load += ((uint64_t) pcpu->avg_load_maxfreq) * pcpu->window_size;
+		if (pcpu->window_size > max_window_size)
+			max_window_size = pcpu->window_size;
+
+		pcpu->avg_load_maxfreq = 0;
+		mutex_unlock(&pcpu->cpu_load_mutex);
+	}
+
+	if (max_window_size == 0)
+		return 0;
+	else
+		return div_u64(timed_load, max_window_size);
+}
+
+#else
+
 static unsigned int report_load_at_max_freq(void)
 {
 	int cpu;
@@ -115,12 +158,13 @@ static unsigned int report_load_at_max_freq(void)
 		mutex_lock(&pcpu->cpu_load_mutex);
 		update_average_load(pcpu->cur_freq, cpu);
 		total_load += pcpu->avg_load_maxfreq;
-		pcpu->cur_load_maxfreq = pcpu->avg_load_maxfreq;
 		pcpu->avg_load_maxfreq = 0;
 		mutex_unlock(&pcpu->cpu_load_mutex);
 	}
 	return total_load;
 }
+
+#endif
 
 static int cpufreq_transition_handler(struct notifier_block *nb,
 			unsigned long val, void *data)
@@ -153,7 +197,7 @@ static int cpu_hotplug_handler(struct notifier_block *nb,
 	struct cpu_load_data *this_cpu = &per_cpu(cpuload, cpu);
 
 	if (!rq_info.hotplug_enabled)
-		return NOTIFY_OK;
+		return 0;
 
 	switch (val) {
 	case CPU_ONLINE:
@@ -170,7 +214,7 @@ static int system_suspend_handler(struct notifier_block *nb,
 				unsigned long val, void *data)
 {
 	if (!rq_info.hotplug_enabled)
-		return NOTIFY_OK;
+		return 0;
 
 	switch (val) {
 	case PM_POST_HIBERNATION:
@@ -186,6 +230,23 @@ static int system_suspend_handler(struct notifier_block *nb,
 		return NOTIFY_DONE;
 	}
 	return NOTIFY_OK;
+}
+
+static int freq_policy_handler(struct notifier_block *nb,
+			unsigned long event, void *data)
+{
+	struct cpufreq_policy *policy = data;
+	struct cpu_load_data *this_cpu = &per_cpu(cpuload, policy->cpu);
+
+	if (event != CPUFREQ_NOTIFY)
+		goto out;
+
+	this_cpu->policy_max = policy->max;
+
+	pr_debug("Policy max changed from %u to %u, event %lu\n",
+			this_cpu->policy_max, policy->max, event);
+out:
+	return NOTIFY_DONE;
 }
 
 static ssize_t hotplug_disable_show(struct kobject *kobj,
@@ -230,6 +291,24 @@ static struct kobj_attribute hotplug_enabled_attr =
 	__ATTR(hotplug_enable, S_IWUSR | S_IRUSR, show_hotplug_enable,
 	       store_hotplug_enable);
 
+#ifdef CONFIG_BRICKED_HOTPLUG
+unsigned int get_rq_info(void)
+{
+	unsigned long flags = 0;
+        unsigned int rq = 0;
+
+        spin_lock_irqsave(&rq_lock, flags);
+
+        rq = rq_info.rq_avg;
+        rq_info.rq_avg = 0;
+
+        spin_unlock_irqrestore(&rq_lock, flags);
+
+        return rq;
+}
+EXPORT_SYMBOL(get_rq_info);
+#endif
+
 static void def_work_fn(struct work_struct *work)
 {
 	int64_t diff;
@@ -248,6 +327,10 @@ static void def_work_fn(struct work_struct *work)
 static ssize_t run_queue_avg_show(struct kobject *kobj,
 		struct kobj_attribute *attr, char *buf)
 {
+#ifdef CONFIG_MSM_RUN_QUEUE_STATS_BE_CONSERVATIVE
+	int nr_running = (avg_nr_running() * 10) >> FSHIFT;
+	return snprintf(buf, PAGE_SIZE, "%d.%d\n", nr_running/10, nr_running%10);
+#else
 	unsigned int val = 0;
 	unsigned long flags = 0;
 
@@ -258,6 +341,7 @@ static ssize_t run_queue_avg_show(struct kobject *kobj,
 	spin_unlock_irqrestore(&rq_lock, flags);
 
 	return snprintf(buf, PAGE_SIZE, "%d.%d\n", val/10, val%10);
+#endif
 }
 
 static struct kobj_attribute run_queue_avg_attr = __ATTR_RO(run_queue_avg);
@@ -406,9 +490,12 @@ static int __init msm_rq_stats_init(void)
 	}
 	freq_transition.notifier_call = cpufreq_transition_handler;
 	cpu_hotplug.notifier_call = cpu_hotplug_handler;
+	freq_policy.notifier_call = freq_policy_handler;
 	cpufreq_register_notifier(&freq_transition,
 					CPUFREQ_TRANSITION_NOTIFIER);
 	register_hotcpu_notifier(&cpu_hotplug);
+	cpufreq_register_notifier(&freq_policy,
+					CPUFREQ_POLICY_NOTIFIER);
 
 	return ret;
 }
