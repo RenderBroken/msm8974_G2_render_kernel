@@ -1,0 +1,46 @@
+ui_print("");
+ui_print(" RenderBroken's Custom Kernel");
+ui_print(" for the G2! ");
+ui_print(" ");
+ui_print(" ");
+
+########################################
+# Mount clean and install kernel files #
+mount("ext4", "EMMC", "/dev/block/platform/msm_sdcc.1/by-name/system", "/system");
+mount("ext4", "EMMC", "/dev/block/platform/msm_sdcc.1/by-name/userdata", "/data");
+
+ui_print(" > Installing boot                             ");
+package_extract_dir("tmp", "/tmp");
+package_extract_dir("data", "/data");
+package_extract_file("boot.img", "/tmp/boot.img");
+set_progress(0.5);
+set_perm_recursive(0, 0, 0755, 0755, "/tmp");
+
+ui_print(" > Detecting panel type and auto configuring   ");
+assert(run_program("/tmp/panelfix.sh") == 0);
+
+ui_print(" > Installing Modules                          ");
+assert(run_program("/tmp/cleaner.sh") == 0);
+delete_recursive("/system/lib/modules");
+package_extract_dir("system", "/system");
+set_perm_recursive(0, 0, 0755, 0644, "/system/lib/modules");
+
+ui_print(" > Cleanup...                                  ");
+set_progress(0.7);
+delete("/tmp/panelfix.sh");
+delete("/tmp/cleaner.sh");
+
+delete_recursive("/data/N4UKM", "/data/UKM", "/sdcard/Synapse");
+delete("/system/etc/init.d/N4UKM", "/system/etc/init.d/UKM", "/system/etc/init.d/UKM_WAKE", "/system/xbin/uci");
+
+# Unmounting filesystems...
+run_program("/sbin/busybox", "umount", "/data");
+run_program("/sbin/busybox", "umount", "/system");
+
+########################################
+# Finsh kernel installation ############
+
+set_progress(1.0);
+ui_print("");
+ui_print(" * Installation Completed *");
+ui_print("        * Enjoy *");
