@@ -290,6 +290,10 @@ config CPU_FREQ_GOV_CONSERVATIVE
 config CPU_FREQ_GOV_OPTIMAX
 	tristate "'optimax' cpufreq policy governor"
 	select CPU_FREQ_TABLE
+	
+config CPU_FREQ_GOV_HYPER
+	tristate "'hyper' cpufreq policy governor"
+	select CPU_FREQ_TABLE
 
 menu "x86 CPU frequency scaling drivers"
 depends on X86
