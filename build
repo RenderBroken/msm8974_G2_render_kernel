@@ -4,7 +4,7 @@ kernel="RenderKernel"
 toolchain=/home/renderbroken/android/source/toolchains/g2-linux-gnueabi-4.9.3/bin
 toolchain2="arm-eabi-"
 kerneltype="zImage"
-jobcount="-j$(grep -c ^processor /proc/cpuinfo)"
+jobcount="-j5"
 base=0x00000000
 pagesize=2048
 ramdisk_offset=0x05000000
@@ -182,8 +182,8 @@ echo "Kernel BUMP done!";
 
 echo "Zipping..."
 cd ozip
-zip -r ../"$kernel"-"$rom"_"$variant"-bumped-.zip .
-mv ../"$kernel"-"$rom"_"$variant"-bumped-.zip $build
+zip -r ../"$kernel"-"$rom"_"$variant"-bumped-R.zip .
+mv ../"$kernel"-"$rom"_"$variant"-bumped-R.zip $build
 cd ..
 rm -rf /home/renderbroken/android/source/out/g2/*
 echo "Done..."
