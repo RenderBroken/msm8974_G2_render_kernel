@@ -172,8 +172,8 @@ fi
 
 echo "Zipping..."
 cd ozip
-zip -r ../"$kernel"-"$rom"_"$variant"-$CURRENTDATE.zip .
-mv ../"$kernel"-"$rom"_"$variant"-$CURRENTDATE.zip $build
+zip -r ../"$kernel"-"$rom"_"$variant"-loki-R.zip .
+mv ../"$kernel"-"$rom"_"$variant"-loki-R.zip $build
 cd ..
 rm -rf /home/renderbroken/android/source/out/g2/*
 echo "Done..."
