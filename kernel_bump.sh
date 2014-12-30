@@ -1,6 +1,6 @@
 #!/bin/sh
 PYTHON_CHECK=$(ls -la /usr/bin/python2 | wc -l);
-BOOT_IMAGE_LOCATION=ozip/boot.img;
+BOOT_IMAGE_LOCATION=ozip-bump/boot.img;
 
 if [ "$PYTHON_CHECK" -eq "1" ]; then
 

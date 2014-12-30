@@ -82,8 +82,8 @@ case "$target" in
 		break;;
 	"aosp")
 		rdflag=2
-		rom="LP"
-		ramdisk=/home/renderbroken/android/source/kernel/msm8974_G2_render_kernel_ramdisk/ramdisk_android_L
+		rom="AOSP"
+		ramdisk=/home/renderbroken/android/source/kernel/msm8974_G2_render_kernel_ramdisk/ramdisk_aosp
 		break;;
 esac
 done
@@ -91,16 +91,16 @@ done
 # Begin commands
 rm -rf /home/renderbroken/android/source/out/g2/*
 echo "Checking for build..."
-if [ -f ozip/boot.img ]; then
+if [ -f ozip-bump/boot.img ]; then
 	read -p "Previous build found, clean working directory..(y/n)? : " cchoice
 	case "$cchoice" in
 		y|Y )
 			export ARCH=arm
 			export CROSS_COMPILE=$toolchain/"$toolchain2"
-			rm -rf ozip/boot.img
-			rm -rf ozip/system/lib/modules
+			rm -rf ozip-bump/boot.img
+			rm -rf ozip-bump/system/lib/modules
 			rm -rf arch/arm/boot/"$kerneltype"
-			mkdir -p ozip/system/lib/modules
+			mkdir -p ozip-bump/system/lib/modules
 			make clean && make mrproper
 			echo "Working directory cleaned...";;
 		n|N )
@@ -118,9 +118,9 @@ if [ -f ozip/boot.img ]; then
 fi
 if [ -f arch/arm/boot/"$kerneltype" ]; then
 	cp arch/arm/boot/"$kerneltype" /home/renderbroken/android/source/out/g2
-	rm -rf ozip/system/modules/*
-	mkdir -p ozip/system/lib/modules
-	find . -name "*.ko" -exec cp {} ozip/system/lib/modules \;
+	rm -rf ozip-bump/system/modules/*
+	mkdir -p ozip-bump/system/lib/modules
+	find . -name "*.ko" -exec cp {} ozip-bump/system/lib/modules \;
 else
 	echo "Nothing has been made..."
 	read -p "Clean working directory..(y/n)? : " achoice
@@ -128,10 +128,10 @@ else
 		y|Y )
 			export ARCH=arm
 			export CROSS_COMPILE=$toolchain/"$toolchain2"
-			rm -rf ozip/boot.img
-			rm -rf ozip/system/lib/modules
+			rm -rf ozip-bump/boot.img
+			rm -rf ozip-bump/system/lib/modules
 			rm -rf arch/arm/boot/"$kerneltype"
-			mkdir -p ozip/system/lib/modules
+			mkdir -p ozip-bump/system/lib/modules
 			make clean && make mrproper
 			echo "Working directory cleaned...";;
 		n|N )
@@ -169,7 +169,7 @@ fi
 
 echo "Making boot.img..."
 if [ -f arch/arm/boot/"$kerneltype" ]; then
-	./mkbootimg --kernel /home/renderbroken/android/source/out/g2/"$kerneltype" --ramdisk $ramdisk --cmdline "$cmdline" --base $base --pagesize $pagesize --offset $ramdisk_offset --tags-addr $tags_offset --dt /home/renderbroken/android/source/out/g2/dt.img -o ozip/boot.img
+	./mkbootimg --kernel /home/renderbroken/android/source/out/g2/"$kerneltype" --ramdisk $ramdisk --cmdline "$cmdline" --base $base --pagesize $pagesize --offset $ramdisk_offset --tags-addr $tags_offset --dt /home/renderbroken/android/source/out/g2/dt.img -o ozip-bump/boot.img
 else
 	echo "No build found..."
 	exit 0;
@@ -177,13 +177,14 @@ fi
 
 echo "Kernel Bump Boot.img..."
 sh kernel_bump.sh
-mv ozip/boot_bumped.img ozip/boot.img
+mv ozip-bump/boot_bumped.img ozip-bump/boot.img
 echo "Kernel BUMP done!";
 
 echo "Zipping..."
-cd ozip
+cd ozip-bump
 zip -r ../"$kernel"-"$rom"_"$variant"-bumped-R.zip .
 mv ../"$kernel"-"$rom"_"$variant"-bumped-R.zip $build
 cd ..
 rm -rf /home/renderbroken/android/source/out/g2/*
+rm -rf ozip-bump/boot.img
 echo "Done..."

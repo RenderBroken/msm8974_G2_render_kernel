@@ -1,6 +1,6 @@
 #!/bin/bash
 build=/home/renderbroken/android/source/zips/msm8974-zips/
-kernel="Render-Kernel"
+kernel="RenderKernel"
 toolchain=/home/renderbroken/android/source/toolchains/g2-linux-gnueabi-4.9.3/bin
 toolchain2="arm-eabi-"
 kerneltype="zImage"
