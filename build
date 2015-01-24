@@ -1,7 +1,15 @@
 #!/bin/bash
 build=/home/renderbroken/android/source/zips/msm8974-zips/
 kernel="RenderKernel"
-toolchain=/home/renderbroken/android/source/toolchains/g2-linux-gnueabi-4.9.3/bin
+
+##### Main Toolchain
+#toolchain=/home/renderbroken/android/source/toolchains/g2-linux-gnueabi-4.9.3/bin
+#####
+
+##### Test Toolchain
+toolchain=/home/renderbroken/android/source/toolchains/linaro-arm-eabi-4.10/bin
+#####
+
 toolchain2="arm-eabi-"
 kerneltype="zImage"
 jobcount="-j5"
