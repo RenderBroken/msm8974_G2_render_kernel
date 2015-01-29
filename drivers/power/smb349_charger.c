@@ -1783,12 +1783,6 @@ int smb349_thermal_mitigation_update(int value)
 				case FAST_CHARGE_2000:
 					new_thermal_mitigation = 2000;
 					break;
-				case FAST_CHARGE_1800:
-					new_thermal_mitigation = 1800;
-					break;
-				case FAST_CHARGE_2000:
-					new_thermal_mitigation = 2000;
-					break;
 				default:
 					break;
 			}
