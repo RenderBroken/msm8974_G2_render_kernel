@@ -2,9 +2,13 @@
 build=/home/renderbroken/android/source/zips/msm8974-zips/
 kernel="RenderKernel"
 
-##### Main Toolchain
-toolchain=/home/renderbroken/android/source/toolchains/g2-linux-gnueabi-4.9.3/bin
+##### Main Toolchain - SM 4.9.3
+#toolchain=/home/renderbroken/android/source/toolchains/g2-linux-gnueabi-4.9.3/bin
 #####
+
+##### Linaro 4.9 - 
+toolchain=/home/renderbroken/android/source/toolchains/arm-cortex_a15-linux-gnueabihf-linaro_4.9/bin
+####
 
 ##### Test Toolchain
 #toolchain=/home/renderbroken/android/source/toolchains/linaro-arm-eabi-4.10/bin
