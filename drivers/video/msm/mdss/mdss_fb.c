@@ -2510,14 +2510,6 @@ static int mdss_fb_ioctl(struct fb_info *info, unsigned int cmd,
 	case MSMFB_DISPLAY_COMMIT:
 		ret = mdss_fb_display_commit(info, argp);
 		break;
-#ifdef CONFIG_MACH_LGE
-	case MSMFB_INVERT_PANEL:
-		ret=copy_from_user(&dsi_panel_invert, argp, sizeof(int));
-		if (ret)
-			return ret;
-		ret = mdss_dsi_panel_invert(dsi_panel_invert);
-		break;
-#endif
 #if defined(CONFIG_LGE_BROADCAST_TDMB) || defined(CONFIG_LGE_BROADCAST_ONESEG)
 	case MSMFB_DMB_SET_FLAG:
 		ret = copy_from_user(&dmb_flag, argp, sizeof(int));
