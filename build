@@ -1,9 +1,21 @@
 #!/bin/bash
-build=/home/renderbroken/android/source/zips/msm8974-zips/
+
+# Kernel Details
+VER=Render-Kernel
+
+# Vars
+export LOCALVERSION=~`echo $VER`
+export ARCH=arm
+export SUBARCH=arm
+export KBUILD_BUILD_USER=RenderBroken
+export KBUILD_BUILD_HOST=RenderServer.net
+export CCACHE=ccache
+
+build=/home/renderbroken/android/source/zips/g2-zips/
 kernel="RenderKernel"
 
 ##### Main Toolchain
-toolchain=/home/renderbroken/android/source/toolchains/g2-linux-gnueabi-4.9.3/bin
+toolchain=/home/renderbroken/android/source/toolchains/arm-cortex_a15-linux-gnueabihf-linaro_4.9/bin
 #####
 
 ##### Test Toolchain
