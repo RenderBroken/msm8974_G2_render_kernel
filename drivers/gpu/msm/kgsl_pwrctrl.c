@@ -217,6 +217,7 @@ void kgsl_pwrctrl_pwrlevel_change(struct kgsl_device *device,
         graphics_boost = pwr->active_pwrlevel;
 #endif
 }
+
 EXPORT_SYMBOL(kgsl_pwrctrl_pwrlevel_change);
 
 static int kgsl_pwrctrl_thermal_pwrlevel_store(struct device *dev,
@@ -428,7 +429,7 @@ static int kgsl_pwrctrl_max_gpuclk_store(struct device *dev,
 	if (level < 0)
 		goto done;
 
-	pwr->thermal_pwrlevel = level - 2;
+	pwr->thermal_pwrlevel = level;
 
 	/*
 	 * if the thermal limit is lower than the current setting,
